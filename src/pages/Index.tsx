@@ -161,7 +161,6 @@ const HomePage = () => {
 const Index = () => {
   return (
     <OrderProvider>
-      <Router>
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/menu" element={<MenuPage />} />
@@ -169,7 +168,6 @@ const Index = () => {
           <Route path="/orders" element={<OrdersPage />} />
           <Route path="/admin" element={<AdminPanel />} />
         </Routes>
-      </Router>
     </OrderProvider>
   );
 };
