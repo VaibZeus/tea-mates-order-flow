@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { ArrowLeft, ShoppingCart, Plus, Minus, Coffee, MapPin } from 'lucide-react';
@@ -94,6 +93,87 @@ const MenuPage = () => {
   const urlParams = new URLSearchParams(location.search);
   const orderType = urlParams.get('type') as 'dine-in' | 'takeaway';
   const tableNumber = urlParams.get('table');
+
+  // New state for landing selection
+  const [showLanding, setShowLanding] = useState<'none' | 'dine-in'>('none');
+  const [tableInput, setTableInput] = useState('');
+
+  // If no orderType, show landing choice
+  if (!orderType) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50">
+        <h1 className="text-2xl font-bold mb-6">Welcome to Tea Mates</h1>
+        <div className="flex flex-col space-y-4 w-full max-w-xs">
+          <button
+            className="bg-amber-500 hover:bg-amber-600 text-white font-semibold py-3 rounded-lg"
+            onClick={() => setShowLanding('dine-in')}
+          >
+            Dine-In (Scan QR or Enter Table)
+          </button>
+          <button
+            className="bg-orange-500 hover:bg-orange-600 text-white font-semibold py-3 rounded-lg"
+            onClick={() => {
+              navigate(`?type=takeaway`);
+            }}
+          >
+            Takeaway / Pickup
+          </button>
+        </div>
+        {showLanding === 'dine-in' && (
+          <div className="mt-8 w-full max-w-xs bg-white p-6 rounded-lg shadow">
+            <label className="block mb-2 font-medium">Enter Table Number</label>
+            <input
+              type="number"
+              min="1"
+              className="w-full border border-gray-300 rounded px-3 py-2 mb-4"
+              value={tableInput}
+              onChange={e => setTableInput(e.target.value)}
+              placeholder="e.g. 5"
+            />
+            <button
+              className="w-full bg-amber-600 hover:bg-amber-700 text-white font-semibold py-2 rounded"
+              disabled={!tableInput}
+              onClick={() => {
+                if (tableInput) {
+                  navigate(`?type=dine-in&table=${tableInput}`);
+                }
+              }}
+            >
+              Continue
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // If dine-in but no table param, prompt for table number
+  if (orderType === 'dine-in' && !tableNumber) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50">
+        <h1 className="text-xl font-bold mb-4">Enter Your Table Number</h1>
+        <input
+          type="number"
+          min="1"
+          className="w-full max-w-xs border border-gray-300 rounded px-3 py-2 mb-4"
+          value={tableInput}
+          onChange={e => setTableInput(e.target.value)}
+          placeholder="e.g. 5"
+        />
+        <button
+          className="w-full max-w-xs bg-amber-600 hover:bg-amber-700 text-white font-semibold py-2 rounded"
+          disabled={!tableInput}
+          onClick={() => {
+            if (tableInput) {
+              navigate(`?type=dine-in&table=${tableInput}`);
+            }
+          }}
+        >
+          Continue
+        </button>
+      </div>
+    );
+  }
 
   const cartItemsCount = state.cart.reduce((total, item) => total + item.quantity, 0);
   const cartTotal = state.cart.reduce((total, item) => total + (item.price * item.quantity), 0);

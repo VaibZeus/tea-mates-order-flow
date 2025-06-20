@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Plus, Minus, Trash2, Clock, CreditCard, Banknote } from 'lucide-react';
@@ -10,6 +9,8 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useOrder } from '@/context/OrderContext';
 import { toast } from '@/hooks/use-toast';
+import { supabase } from '@/lib/supabaseClient';
+import { generateTokenNumber } from '@/lib/utils';
 
 const CartPage = () => {
   const navigate = useNavigate();
@@ -20,10 +21,16 @@ const CartPage = () => {
     name: '',
     phone: '',
   });
+  const [loading, setLoading] = useState(false);
 
   const cartTotal = state.cart.reduce((total, item) => total + (item.price * item.quantity), 0);
   const tax = Math.round(cartTotal * 0.05); // 5% tax
   const finalTotal = cartTotal + tax;
+
+  // Get order type and table from URL
+  const urlParams = new URLSearchParams(window.location.search);
+  const orderType = urlParams.get('type') as 'dine-in' | 'takeaway' || 'takeaway';
+  const tableNumber = urlParams.get('table') || undefined;
 
   const updateQuantity = (id: string, quantity: number) => {
     if (quantity === 0) {
@@ -41,7 +48,7 @@ const CartPage = () => {
     });
   };
 
-  const placeOrder = () => {
+  const placeOrder = async () => {
     if (state.cart.length === 0) {
       toast({
         title: 'Cart is empty',
@@ -51,30 +58,66 @@ const CartPage = () => {
       return;
     }
 
-    const urlParams = new URLSearchParams(window.location.search);
-    const orderType = urlParams.get('type') as 'dine-in' | 'takeaway' || 'takeaway';
-    const tableNumber = urlParams.get('table') || undefined;
+    setLoading(true);
+    
+    try {
+      const tokenNumber = generateTokenNumber();
+      
+      // Insert order into Supabase
+      const { data, error } = await supabase
+        .from('orders')
+        .insert([
+          {
+            items: state.cart,
+            total: finalTotal,
+            status: 'pending',
+            token_number: tokenNumber,
+            timestamp: new Date().toISOString(),
+            customer_info: customerInfo.name || customerInfo.phone ? customerInfo : null,
+            order_type: orderType,
+            table_number: tableNumber,
+            pickup_time: orderType === 'takeaway' ? pickupTime : null,
+            payment_method: paymentMethod,
+          },
+        ])
+        .select()
+        .single();
 
-    dispatch({
-      type: 'PLACE_ORDER',
-      payload: {
-        items: state.cart,
-        total: finalTotal,
-        orderType,
-        tableNumber,
-        pickupTime: orderType === 'takeaway' ? pickupTime : undefined,
-        paymentMethod,
-        status: 'pending',
-        customerInfo: customerInfo.name || customerInfo.phone ? customerInfo : undefined,
-      },
-    });
+      if (error) {
+        throw error;
+      }
 
-    toast({
-      title: 'Order placed successfully!',
-      description: 'Your order has been received and is being processed',
-    });
+      // Update local state
+      dispatch({
+        type: 'PLACE_ORDER',
+        payload: {
+          items: state.cart,
+          total: finalTotal,
+          orderType,
+          tableNumber,
+          pickupTime: orderType === 'takeaway' ? pickupTime : undefined,
+          paymentMethod,
+          status: 'pending',
+          customerInfo: customerInfo.name || customerInfo.phone ? customerInfo : undefined,
+        },
+      });
 
-    navigate('/orders');
+      toast({
+        title: 'Order placed successfully!',
+        description: `Your order #${tokenNumber} has been received and is being processed`,
+      });
+
+      navigate('/orders');
+    } catch (error) {
+      console.error('Error placing order:', error);
+      toast({
+        title: 'Error placing order',
+        description: 'Please try again or contact support',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   const generateTimeSlots = () => {
@@ -208,30 +251,32 @@ const CartPage = () => {
               </CardContent>
             </Card>
 
-            {/* Pickup Time */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center space-x-2">
-                  <Clock className="h-5 w-5" />
-                  <span>Pickup Time</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <Select value={pickupTime} onValueChange={setPickupTime}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select pickup time" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="asap">As soon as possible</SelectItem>
-                    {generateTimeSlots().map((time) => (
-                      <SelectItem key={time} value={time}>
-                        {time}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </CardContent>
-            </Card>
+            {/* Pickup Time for Takeaway */}
+            {orderType === 'takeaway' && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center space-x-2">
+                    <Clock className="h-5 w-5" />
+                    <span>Pickup Time</span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <Select value={pickupTime} onValueChange={setPickupTime}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select pickup time" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="asap">As soon as possible</SelectItem>
+                      {generateTimeSlots().map((time) => (
+                        <SelectItem key={time} value={time}>
+                          {time}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </CardContent>
+              </Card>
+            )}
 
             {/* Payment Method */}
             <Card>
@@ -280,9 +325,10 @@ const CartPage = () => {
                 </div>
                 <Button
                   onClick={placeOrder}
+                  disabled={loading}
                   className="w-full bg-gradient-to-r from-green-500 to-teal-500 hover:from-green-600 hover:to-teal-600 text-white font-semibold py-3"
                 >
-                  Place Order
+                  {loading ? 'Placing Order...' : 'Place Order'}
                 </Button>
               </CardContent>
             </Card>
