@@ -296,7 +296,7 @@ const AdminPanel = () => {
       title: 'Logged Out',
       description: 'You have been logged out successfully',
     });
-    navigate('/admin');
+    navigate('/');
   };
 
   const handlePrintOrderSlip = (order: Order) => {

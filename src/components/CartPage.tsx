@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Plus, Minus, Trash2, Clock, CreditCard, Banknote } from 'lucide-react';
+import { ArrowLeft, Plus, Minus, Trash2, Clock, CreditCard, Banknote, Receipt } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Separator } from '@/components/ui/separator';
 import { useOrder } from '@/context/OrderContext';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabaseClient';
@@ -23,9 +24,12 @@ const CartPage = () => {
   });
   const [loading, setLoading] = useState(false);
 
-  const cartTotal = state.cart.reduce((total, item) => total + (item.price * item.quantity), 0);
-  const tax = Math.round(cartTotal * 0.05); // 5% tax
-  const finalTotal = cartTotal + tax;
+  // Tax calculations
+  const cartSubtotal = state.cart.reduce((total, item) => total + (item.price * item.quantity), 0);
+  const sgstAmount = Math.round(cartSubtotal * 0.025 * 100) / 100; // 2.5% SGST
+  const cgstAmount = Math.round(cartSubtotal * 0.025 * 100) / 100; // 2.5% CGST
+  const totalTax = sgstAmount + cgstAmount;
+  const finalTotal = cartSubtotal + totalTax;
 
   // Get order type and table from URL
   const urlParams = new URLSearchParams(window.location.search);
@@ -63,13 +67,18 @@ const CartPage = () => {
     try {
       const tokenNumber = generateTokenNumber();
       
-      // Insert order into Supabase
+      // Insert order into Supabase with tax breakdown
       const { data, error } = await supabase
         .from('orders')
         .insert([
           {
             items: state.cart,
-            total: finalTotal,
+            subtotal: cartSubtotal,
+            sgst_amount: sgstAmount,
+            cgst_amount: cgstAmount,
+            total_tax: totalTax,
+            final_total: finalTotal,
+            total: finalTotal, // For backward compatibility
             status: 'pending',
             token_number: tokenNumber,
             timestamp: new Date().toISOString(),
@@ -303,26 +312,44 @@ const CartPage = () => {
               </CardContent>
             </Card>
 
-            {/* Order Summary */}
+            {/* Order Summary with Tax Breakdown */}
             <Card>
               <CardHeader>
-                <CardTitle>Order Summary</CardTitle>
+                <CardTitle className="flex items-center space-x-2">
+                  <Receipt className="h-5 w-5" />
+                  <span>Order Summary</span>
+                </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="flex justify-between">
                   <span>Subtotal</span>
-                  <span>₹{cartTotal}</span>
+                  <span>₹{cartSubtotal.toFixed(2)}</span>
                 </div>
-                <div className="flex justify-between">
-                  <span>Tax (5%)</span>
-                  <span>₹{tax}</span>
-                </div>
-                <div className="border-t pt-3">
-                  <div className="flex justify-between font-bold text-lg">
-                    <span>Total</span>
-                    <span>₹{finalTotal}</span>
+                
+                <Separator />
+                
+                <div className="space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span>SGST (2.5%)</span>
+                    <span>₹{sgstAmount.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span>CGST (2.5%)</span>
+                    <span>₹{cgstAmount.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm font-medium">
+                    <span>Total Tax (5%)</span>
+                    <span>₹{totalTax.toFixed(2)}</span>
                   </div>
                 </div>
+                
+                <Separator />
+                
+                <div className="flex justify-between font-bold text-lg">
+                  <span>Final Total</span>
+                  <span>₹{finalTotal.toFixed(2)}</span>
+                </div>
+                
                 <Button
                   onClick={placeOrder}
                   disabled={loading}

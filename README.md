@@ -1,69 +1,114 @@
-# Welcome to your Lovable project
+# Tea Mates Order Flow
 
-## Project info
+A modern tea shop order management system built with React (Vite), Supabase, and a beautiful UI. This app allows users to browse the menu, add items to their cart, place orders, and track their order status in real time. Admins can manage and update orders via a secure login.
 
-## How can I edit this code?
+---
 
-There are several ways of editing your application.
+## Features
+- User-friendly menu and cart system
+- Order checkout with name and phone number
+- Unique token generated for each order
+- Real-time order status updates (pending, accepted, preparing, done)
+- Users can view only their own orders (by phone or token)
+- Admin panel for order management and status updates
+- Supabase as backend (database, real-time, and authentication)
 
-**Use Lovable**
+---
 
-Changes made via Lovable will be committed automatically to this repo.
+## Tech Stack
+- [React (Vite)](https://vitejs.dev/)
+- [Supabase](https://supabase.com/)
+- [React Router](https://reactrouter.com/)
+- [Tailwind CSS](https://tailwindcss.com/)
+- [Lucide Icons](https://lucide.dev/)
 
-**Use your preferred IDE**
+---
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+## Getting Started
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
+### 1. Clone the Repository
 ```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
+git clone https://github.com/yourusername/tea-mates-order-flow.git
+cd tea-mates-order-flow
 ```
 
-**Edit a file directly in GitHub**
+### 2. Install Dependencies
+```sh
+npm install
+```
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+### 3. Set Up Supabase
+- Go to [supabase.com](https://supabase.com/) and create a new project.
+- In the Supabase dashboard, go to **Table Editor** and create the following table:
 
-**Use GitHub Codespaces**
+#### `orders` Table (SQL)
+```sql
+create table orders (
+  id uuid primary key default gen_random_uuid(),
+  items jsonb not null, -- array of cart items
+  total numeric not null,
+  status text not null default 'pending', -- e.g. pending, accepted, preparing, done, delivered
+  tokenNumber text not null, -- unique order token
+  timestamp timestamptz not null default now(),
+  customerInfo jsonb, -- { name: string, phone: string }
+  orderType text, -- 'dine-in' or 'takeaway'
+  tableNumber text, -- optional
+  pickupTime text, -- optional
+  paymentMethod text -- 'online' or 'cash'
+);
+```
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+- (Optional) Add `menu_items` and `order_items` tables if you want to manage menu and order items separately.
 
-## What technologies are used for this project?
+### 4. Configure Environment Variables
+Create a `.env` file in the project root:
+```
+VITE_SUPABASE_URL=your_supabase_url
+VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
+```
+Get these values from your Supabase project dashboard under **Project Settings → API**.
 
-This project is built with:
+### 5. Start the App
+```sh
+npm run dev
+```
+Open [http://localhost:5173](http://localhost:5173) in your browser.
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+---
 
-## How can I deploy this project?
+## Usage
 
-Simply open and click on Share -> Publish.
+### User Flow
+- Browse the menu and add items to your cart.
+- Go to the cart and proceed to checkout.
+- Enter your name and phone number to place an order.
+- Receive a unique token for your order.
+- Track your order status in real time by searching with your phone or token.
 
-## Can I connect a custom domain to my Lovable project?
+### Admin Flow
+- Go to `/admin` and log in (default: `admin` / `admin123`).
+- View all orders and update their status (accepted, preparing, done).
+- Admin login is valid for 24 hours.
 
-Yes, you can!
+---
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+## Project Structure
+```
+src/
+  components/         # React components (pages, UI, admin, etc.)
+  context/            # React context for order state
+  lib/                # Supabase client, utilities
+  pages/              # Top-level pages (Index, NotFound)
+  App.tsx             # Main app component and routes
+```
 
-Read more here: [Setting up a custom domain]
+---
+
+## Customization
+- Update the menu, branding, and UI as needed.
+- Extend the database schema for more features (menu management, analytics, etc.).
+
+---
+
+## License
+MIT
