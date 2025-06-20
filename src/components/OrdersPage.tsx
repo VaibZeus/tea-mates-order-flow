@@ -122,104 +122,79 @@ const OrdersPage = () => {
   };
 
   // Real-time subscription for order updates
+  // 
+  
   useEffect(() => {
-    if (!submitted) return;
+  const channel = supabase
+    .channel('orders-all-live')
+    .on('postgres_changes', {
+      event: '*',
+      schema: 'public',
+      table: 'orders',
+    }, (payload) => {
+      const newOrder = payload.new as Order;
+      const oldOrder = payload.old as Order;
 
-    const channel = supabase
-      .channel('customer-orders-changes')
-      .on('postgres_changes', { 
-        event: '*', 
-        schema: 'public', 
-        table: 'orders' 
-      }, (payload) => {
-        if (payload.eventType === 'UPDATE' && payload.new) {
-          const updatedOrder = payload.new as Order;
-          const oldOrder = payload.old as Order;
-          
-          setOrders(prevOrders => 
-            prevOrders.map(order => 
-              order.id === updatedOrder.id ? updatedOrder : order
-            )
-          );
-          
-          // Check if this order belongs to the current search results
-          const searchTerm = search.trim().toLowerCase();
-          const isRelevantOrder = 
-            updatedOrder.token_number.toLowerCase().includes(searchTerm) ||
-            updatedOrder.customer_info?.phone?.toLowerCase().includes(searchTerm) ||
-            updatedOrder.customer_info?.name?.toLowerCase().includes(searchTerm);
+      setOrders(prevOrders => {
+        const exists = prevOrders.find(o => o.id === newOrder.id);
 
-          if (isRelevantOrder && oldOrder.status !== updatedOrder.status) {
-            // Show different notifications based on status
-            let notificationTitle = '';
-            let notificationBody = '';
-            let toastTitle = '';
-            let toastDescription = '';
-
-            switch (updatedOrder.status) {
-              case 'accepted':
-              case 'confirmed':
-                notificationTitle = '✅ Order Confirmed!';
-                notificationBody = `Your order #${updatedOrder.token_number} has been confirmed and is being prepared.`;
-                toastTitle = 'Order Confirmed';
-                toastDescription = `Order #${updatedOrder.token_number} is now being prepared`;
-                break;
-              case 'preparing':
-                notificationTitle = '👨‍🍳 Order Being Prepared!';
-                notificationBody = `Your order #${updatedOrder.token_number} is now being prepared by our kitchen.`;
-                toastTitle = 'Order in Kitchen';
-                toastDescription = `Order #${updatedOrder.token_number} is being prepared`;
-                break;
-              case 'ready':
-              case 'done':
-                notificationTitle = '🎉 Order Ready!';
-                notificationBody = `Your order #${updatedOrder.token_number} is ready for ${updatedOrder.order_type === 'dine-in' ? 'serving' : 'pickup'}!`;
-                toastTitle = 'Order Ready!';
-                toastDescription = `Order #${updatedOrder.token_number} is ready for ${updatedOrder.order_type === 'dine-in' ? 'serving' : 'pickup'}`;
-                break;
-              case 'delivered':
-                notificationTitle = '✨ Order Complete!';
-                notificationBody = `Your order #${updatedOrder.token_number} has been completed. Thank you!`;
-                toastTitle = 'Order Complete';
-                toastDescription = `Order #${updatedOrder.token_number} has been completed`;
-                break;
-            }
-
-            if (notificationTitle) {
-              // Show browser notification
-              showNotification(notificationTitle, notificationBody);
-              
-              // Play notification sound
-              playNotificationSound();
-              
-              // Show toast notification
-              toast({
-                title: toastTitle,
-                description: toastDescription,
-                duration: 5000,
-              });
-            }
-          }
-        } else if (payload.eventType === 'INSERT' && payload.new) {
-          const newOrder = payload.new as Order;
-          const searchTerm = search.trim().toLowerCase();
-          
-          // Check if new order matches current search
-          if (
-            newOrder.token_number.toLowerCase().includes(searchTerm) ||
-            newOrder.customer_info?.phone?.toLowerCase().includes(searchTerm) ||
-            newOrder.customer_info?.name?.toLowerCase().includes(searchTerm)
-          ) {
-            setOrders(prevOrders => [newOrder, ...prevOrders]);
-          }
+        if (payload.eventType === 'INSERT') {
+          return exists ? prevOrders : [newOrder, ...prevOrders];
         }
-      })
-      .subscribe();
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [submitted, search, notificationsEnabled]);
+        if (payload.eventType === 'UPDATE') {
+          return prevOrders.map(order =>
+            order.id === newOrder.id ? newOrder : order
+          );
+        }
+
+        return prevOrders;
+      });
+
+      // Optional: Handle status change notification
+      if (
+        payload.eventType === 'UPDATE' &&
+        oldOrder?.status !== newOrder.status
+      ) {
+        showNotification(`Order #${newOrder.token_number}`, `Status changed to ${newOrder.status}`);
+        playNotificationSound();
+        toast({
+          title: `Order Updated`,
+          description: `Order #${newOrder.token_number} is now ${newOrder.status}`,
+        });
+      }
+    })
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(channel);
+  };
+}, []);
+
+useEffect(() => {
+  const loadInitialOrders = async () => {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from('orders')
+      .select('*')
+      .order('timestamp', { ascending: false })
+      .limit(30); // recent 30 orders
+
+    if (error) {
+      toast({
+        title: 'Error loading orders',
+        description: error.message,
+        variant: 'destructive',
+      });
+    } else {
+      setOrders(data);
+    }
+    setLoading(false);
+  };
+
+  loadInitialOrders();
+}, []);
+
 
   useEffect(() => {
     const timer = setInterval(() => {

@@ -235,7 +235,6 @@ const AdminPanel = () => {
         }
       })
       .subscribe();
-
     return () => {
       supabase.removeChannel(channel);
     };
@@ -277,8 +276,11 @@ const AdminPanel = () => {
             break;
           case 'done':
             notificationMessage = 'Order is ready for pickup/serving';
+            
             break;
         }
+
+        fetchOrders(); // Refresh orders to reflect status change
         
         if (notificationMessage) {
           toast({
