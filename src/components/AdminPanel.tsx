@@ -7,10 +7,11 @@ import { Badge } from './ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Input } from './ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
-import { RefreshCw, LogOut, Clock, Package, CheckCircle, Truck, Printer, Send, Download, Bell, Search, X, BarChart3, Receipt } from 'lucide-react';
+import { RefreshCw, LogOut, Clock, Package,CheckCircle, Truck, Printer, Send, Download, Bell, Search, X, BarChart3, Receipt, CrossIcon, Cross, CrosshairIcon, PizzaIcon, Check, CheckCheck, FileClock } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import OrderSlip from './OrderSlip';
 import SalesReports from './SalesReports';
+import { Cancel } from '@radix-ui/react-alert-dialog';
 
 interface Order {
   id: string;
@@ -36,9 +37,11 @@ interface Order {
 
 const statusOptions = [
   { value: 'pending', label: 'Pending', icon: Clock, color: 'bg-yellow-100 text-yellow-800' },
-  { value: 'accepted', label: 'Accepted', icon: CheckCircle, color: 'bg-blue-100 text-blue-800' },
+  { value: 'accepted', label: 'Accepted', icon: CheckCheck, color: 'bg-blue-100 text-blue-800' },
   { value: 'preparing', label: 'Preparing', icon: Package, color: 'bg-orange-100 text-orange-800' },
   { value: 'done', label: 'Ready', icon: Truck, color: 'bg-green-100 text-green-800' },
+  { value: 'cancelled', label: 'Cancelled', icon: X, color: 'bg-red-100 text-red-800' },
+  { value: 'completed', label: 'Completed', icon: CheckCircle, color: 'bg-white-100 text-black-800' },
 ];
 
 const AdminPanel = () => {
@@ -57,72 +60,58 @@ const AdminPanel = () => {
   const navigate = useNavigate();
 
   const fetchOrders = async () => {
-    setLoading(true);
-    try {
-      let query = supabase
-        .from('orders')
-        .select('*')
-        .order('timestamp', { ascending: false });
+  setLoading(true);
+  try {
+    const { data, error } = await supabase
+      .from('orders')
+      .select('*')
+      .order('timestamp', { ascending: false });
 
+    if (!error && data) {
+      setAllOrders(data);
+
+      // Apply current filter and search to display orders
+      let filtered = data;
       if (filter !== 'all') {
-        query = query.eq('status', filter);
+        filtered = filtered.filter(order => order.status === filter);
       }
-
-      const { data, error } = await query;
-      
-      if (!error && data) {
-        setAllOrders(data);
-        if (!isSearching) {
-          setOrders(data);
-        }
+      if (searchTerm.trim()) {
+        filtered = filtered.filter(order =>
+          order.token_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          order.customer_info?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          order.customer_info?.phone?.toLowerCase().includes(searchTerm.toLowerCase())
+        );
       }
-    } catch (error) {
-      console.error('Error fetching orders:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to fetch orders',
-        variant: 'destructive',
-      });
-    } finally {
-      setLoading(false);
+      setOrders(filtered);
     }
-  };
+  } catch (error) {
+    console.error('Error fetching orders:', error);
+    toast({
+      title: 'Error',
+      description: 'Failed to fetch orders',
+      variant: 'destructive',
+    });
+  } finally {
+    setLoading(false);
+  }
+};
 
-  const searchOrders = async (term: string) => {
-    if (!term.trim()) {
-      setOrders(allOrders);
-      setIsSearching(false);
-      return;
-    }
+ useEffect(() => {
+  let filtered = allOrders;
+  if (filter !== 'all') {
+    filtered = filtered.filter(order => order.status === filter);
+  }
+  if (searchTerm.trim()) {
+    const term = searchTerm.toLowerCase();
+    filtered = filtered.filter(order =>
+      order.token_number.toLowerCase().includes(term) ||
+      order.customer_info?.name?.toLowerCase().includes(term) ||
+      order.customer_info?.phone?.toLowerCase().includes(term)
+    );
+  }
+  setOrders(filtered);
+}, [filter, searchTerm, allOrders]);
 
-    setIsSearching(true);
-    setLoading(true);
-
-    try {
-      const { data, error } = await supabase
-        .from('orders')
-        .select('*')
-        .or(`token_number.ilike.%${term}%,customer_info->>phone.ilike.%${term}%,customer_info->>name.ilike.%${term}%`)
-        .order('timestamp', { ascending: false });
-      
-      if (!error && data) {
-        let filteredData = data;
-        if (filter !== 'all') {
-          filteredData = data.filter(order => order.status === filter);
-        }
-        setOrders(filteredData);
-      }
-    } catch (error) {
-      console.error('Error searching orders:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to search orders',
-        variant: 'destructive',
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const clearSearch = () => {
     setSearchTerm('');
@@ -140,14 +129,6 @@ const AdminPanel = () => {
 
     fetchOrders();
   }, [filter, navigate]);
-
-  useEffect(() => {
-    const timeoutId = setTimeout(() => {
-      searchOrders(searchTerm);
-    }, 300); // Debounce search
-
-    return () => clearTimeout(timeoutId);
-  }, [searchTerm, filter]);
 
   // Real-time subscription for order updates
   useEffect(() => {
@@ -351,8 +332,11 @@ const AdminPanel = () => {
   const formatCurrency = (amount: number) => `₹${amount?.toFixed(2) || '0.00'}`;
 
   const pendingOrders = allOrders.filter(order => order.status === 'pending').length;
+  const acceptedOrders = allOrders.filter(order => order.status === 'accepted').length;
   const preparingOrders = allOrders.filter(order => order.status === 'preparing').length;
   const readyOrders = allOrders.filter(order => order.status === 'done').length;
+  const completedOrders = allOrders.filter(order => order.status === 'completed').length;
+  const cancelledOrders = allOrders.filter(order => order.status === 'cancelled').length;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -510,9 +494,9 @@ const AdminPanel = () => {
             )}
 
             {/* Stats Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-              <Card>
-                <CardContent className="p-6">
+            <div className="grid grid-cols-1 md:grid-cols-7 gap-3">
+              <Card onClick={()=> setFilter('pending')} className="cursor-pointer hover:shadow-lg transition-shadow">
+                <CardContent className="p-3">
                   <div className="flex items-center">
                     <div className="p-2 bg-yellow-100 rounded-lg">
                       <Clock className="h-6 w-6 text-yellow-600" />
@@ -525,8 +509,22 @@ const AdminPanel = () => {
                 </CardContent>
               </Card>
 
-              <Card>
-                <CardContent className="p-6">
+              <Card onClick={()=> setFilter('accepted')} className="cursor-pointer hover:shadow-lg transition-shadow">
+                <CardContent className="p-3">
+                  <div className="flex items-center">
+                    <div className="p-2 bg-blue-100 rounded-lg">
+                      <CheckCheck className="h-6 w-6 text-blue-600" />
+                    </div>
+                    <div className="ml-4">
+                      <p className="text-sm font-medium text-gray-600">Accepted</p>
+                      <p className="text-2xl font-bold text-gray-900">{acceptedOrders}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card onClick={()=> setFilter('preparing')} className="cursor-pointer hover:shadow-lg transition-shadow">
+                <CardContent className="p-3">
                   <div className="flex items-center">
                     <div className="p-2 bg-orange-100 rounded-lg">
                       <Package className="h-6 w-6 text-orange-600" />
@@ -539,8 +537,8 @@ const AdminPanel = () => {
                 </CardContent>
               </Card>
 
-              <Card>
-                <CardContent className="p-6">
+              <Card onClick={()=> setFilter('done')} className="cursor-pointer hover:shadow-lg transition-shadow">
+                <CardContent className="p-3">
                   <div className="flex items-center">
                     <div className="p-2 bg-green-100 rounded-lg">
                       <Truck className="h-6 w-6 text-green-600" />
@@ -553,11 +551,39 @@ const AdminPanel = () => {
                 </CardContent>
               </Card>
 
-              <Card>
-                <CardContent className="p-6">
+              <Card onClick={()=> setFilter('completed')} className="cursor-pointer hover:shadow-lg transition-shadow">
+                <CardContent className="p-3">
                   <div className="flex items-center">
-                    <div className="p-2 bg-blue-100 rounded-lg">
-                      <CheckCircle className="h-6 w-6 text-blue-600" />
+                    <div className="p-2 bg-purple-100 rounded-lg">
+                      <CheckCircle className="h-6 w-6  text-purple-600" />
+                    </div>
+                    <div className="ml-4">
+                      <p className="text-sm font-medium text-gray-600">Completed</p>
+                      <p className="text-2xl font-bold text-gray-900">{completedOrders}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card onClick={()=> setFilter('cancelled')} className="cursor-pointer hover:shadow-lg transition-shadow">
+                <CardContent className="p-3">
+                  <div className="flex items-center">
+                    <div className="p-2 bg-red-100 rounded-lg">
+                      <CrossIcon className="h-6 w-6 text-red-600 rotate-45 " />
+                    </div>
+                    <div className="ml-4">
+                      <p className="text-sm font-medium text-gray-600">Cancelled</p>
+                      <p className="text-2xl font-bold text-gray-900">{cancelledOrders}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card onClick={()=> setFilter('all')} className="cursor-pointer hover:shadow-lg transition-shadow">
+                <CardContent className="p-3">
+                  <div className="flex items-center">
+                    <div className="p-2 bg-black rounded-lg">
+                      <FileClock className="h-6 w-6 text-white" />
                     </div>
                     <div className="ml-4">
                       <p className="text-sm font-medium text-gray-600">Total Orders</p>
@@ -600,7 +626,7 @@ const AdminPanel = () => {
             ) : (
               <div className="space-y-4">
                 {orders.map(order => (
-                  <Card key={order.id} className={order.status === 'pending' ? 'border-yellow-200 bg-yellow-50' : ''}>
+                  <Card key={order.id} className={order.status === 'pending' ? 'border-yellow-200 bg-yellow-50' : order.status === 'accepted' ? 'border-blue-200 bg-white' : order.status === 'preparing' ? 'border-orange-200 bg-orange-50' : order.status === 'done' ? 'border-green-200 bg-green-50' : order.status === 'cancelled' ? 'border-red-200 bg-red-50' : 'border-purple-200 bg-purple-50'}>
                     <CardHeader>
                       <div className="flex items-center justify-between">
                         <CardTitle className="flex items-center space-x-3">

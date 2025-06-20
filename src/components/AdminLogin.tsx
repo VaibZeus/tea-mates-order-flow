@@ -26,7 +26,7 @@ const AdminLogin = () => {
       const now = new Date();
       const hoursDiff = (now.getTime() - loginDate.getTime()) / (1000 * 60 * 60);
       if (hoursDiff <= 24) {
-        navigate('/admin', { replace: true });
+        navigate('/admin/dashboard', { replace: true });
       }
     }
   }, [navigate]);
@@ -47,7 +47,7 @@ const AdminLogin = () => {
         description: 'Welcome to the admin dashboard',
       });
       
-      navigate('/admin');
+      navigate('/admin/dashboard', { replace: true });
     } else {
       toast({
         title: 'Login Failed',

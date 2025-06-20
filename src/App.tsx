@@ -22,20 +22,20 @@ const App = () => {
   const isAdminLoggedIn = () => {
     const loggedIn = localStorage.getItem('admin_logged_in');
     const loginTime = localStorage.getItem('admin_login_time');
-    
+
     if (!loggedIn || !loginTime) return false;
-    
+
     // Check if login is still valid (24 hours)
     const loginDate = new Date(loginTime);
     const now = new Date();
     const hoursDiff = (now.getTime() - loginDate.getTime()) / (1000 * 60 * 60);
-    
+
     if (hoursDiff > 24) {
       localStorage.removeItem('admin_logged_in');
       localStorage.removeItem('admin_login_time');
       return false;
     }
-    
+
     return true;
   };
 
@@ -51,9 +51,10 @@ const App = () => {
               <Route path="/menu" element={<MenuPage />} />
               <Route path="/cart" element={<CartPage />} />
               <Route path="/orders" element={<OrdersPage />} />
-              <Route path="/admin" element={
-                isAdminLoggedIn() ? <AdminPanel /> : <AdminLogin />
-              } />
+              <Route path="/admin" element={<AdminLogin />} />
+              <Route path="/admin/dashboard"
+                element={isAdminLoggedIn() ? <AdminPanel /> : <AdminLogin />} 
+              />
               <Route path="/checkout" element={<CheckoutPage />} />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
