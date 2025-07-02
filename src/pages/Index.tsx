@@ -1,16 +1,10 @@
-
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Link, useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Menu, ShoppingCart, Clock, MapPin, QrCode, Utensils, Coffee } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import MenuPage from '@/components/MenuPage';
-import CartPage from '@/components/CartPage';
-import OrdersPage from '@/components/OrdersPage';
-import AdminPanel from '@/components/AdminPanel';
-import { OrderProvider } from '@/context/OrderContext';
 
-const HomePage = () => {
+const Index = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [tableNumber, setTableNumber] = useState<string | null>(null);
@@ -48,12 +42,18 @@ const HomePage = () => {
               </div>
             </div>
             <nav className="hidden md:flex items-center space-x-6">
-              <Link to="/orders" className="text-gray-700 hover:text-amber-600 transition-colors">
+              <button 
+                onClick={() => navigate('/orders')} 
+                className="text-gray-700 hover:text-amber-600 transition-colors"
+              >
                 Orders
-              </Link>
-              <Link to="/admin" className="text-gray-700 hover:text-amber-600 transition-colors">
+              </button>
+              <button 
+                onClick={() => navigate('/admin')} 
+                className="text-gray-700 hover:text-amber-600 transition-colors"
+              >
                 Admin
-              </Link>
+              </button>
             </nav>
           </div>
         </div>
@@ -150,25 +150,11 @@ const HomePage = () => {
               <ShoppingCart className="h-8 w-8 text-blue-600" />
             </div>
             <h4 className="text-lg font-semibold text-gray-900 mb-2">Easy Payment</h4>
-            <p className="text-gray-600">Pay online or at the counter - whatever works for you</p>
+            <p className="text-gray-600">Pay online with UPI or at the counter - whatever works for you</p>
           </div>
         </div>
       </main>
     </div>
-  );
-};
-
-const Index = () => {
-  return (
-    <OrderProvider>
-        <Routes>
-          <Route path="/" element={<HomePage />} />
-          <Route path="/menu" element={<MenuPage />} />
-          <Route path="/cart" element={<CartPage />} />
-          <Route path="/orders" element={<OrdersPage />} />
-          <Route path="/admin" element={<AdminPanel />} />
-        </Routes>
-    </OrderProvider>
   );
 };
 

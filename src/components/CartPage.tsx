@@ -8,10 +8,13 @@ import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { NavigationHeader } from '@/components/ui/navigation-header';
 import { useOrder } from '@/context/OrderContext';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabaseClient';
 import { generateTokenNumber } from '@/lib/utils';
+import UPIPaymentForm from './UPIPaymentForm';
 
 const CartPage = () => {
   const navigate = useNavigate();
@@ -23,6 +26,8 @@ const CartPage = () => {
     phone: '',
   });
   const [loading, setLoading] = useState(false);
+  const [orderId, setOrderId] = useState<string | null>(null);
+  const [showUPIPayment, setShowUPIPayment] = useState(false);
 
   // Tax calculations
   const cartSubtotal = state.cart.reduce((total, item) => total + (item.price * item.quantity), 0);
@@ -53,6 +58,7 @@ const CartPage = () => {
   };
 
   const placeOrder = async () => {
+    // Validation
     if (state.cart.length === 0) {
       toast({
         title: 'Cart is empty',
@@ -62,61 +68,62 @@ const CartPage = () => {
       return;
     }
 
-    setLoading(true);
+    // Validate required customer name
+    if (!customerInfo.name.trim()) {
+      toast({
+        title: 'Name Required',
+        description: 'Please enter your name to place the order',
+        variant: 'destructive',
+      });
+      return;
+    }
     
+    setLoading(true);
     try {
       const tokenNumber = generateTokenNumber();
-      
-      // Insert order into Supabase with tax breakdown
+      const orderData = {
+        items: state.cart,
+        subtotal: cartSubtotal,
+        sgst_amount: sgstAmount,
+        cgst_amount: cgstAmount,
+        total_tax: totalTax,
+        final_total: finalTotal,
+        total: finalTotal, // For backward compatibility
+        status: 'pending',
+        token_number: tokenNumber,
+        timestamp: new Date().toISOString(),
+        customer_info: customerInfo,
+        order_type: orderType,
+        table_number: tableNumber,
+        pickup_time: orderType === 'takeaway' ? pickupTime : null,
+        payment_method: paymentMethod,
+        payment_verified: paymentMethod === 'cash', // Auto-verify cash payments
+      };
+
       const { data, error } = await supabase
         .from('orders')
-        .insert([
-          {
-            items: state.cart,
-            subtotal: cartSubtotal,
-            sgst_amount: sgstAmount,
-            cgst_amount: cgstAmount,
-            total_tax: totalTax,
-            final_total: finalTotal,
-            total: finalTotal, // For backward compatibility
-            status: 'pending',
-            token_number: tokenNumber,
-            timestamp: new Date().toISOString(),
-            customer_info: customerInfo.name || customerInfo.phone ? customerInfo : null,
-            order_type: orderType,
-            table_number: tableNumber,
-            pickup_time: orderType === 'takeaway' ? pickupTime : null,
-            payment_method: paymentMethod,
-          },
-        ])
+        .insert([orderData])
         .select()
         .single();
-
+        
       if (error) {
+        console.error('Order creation error:', error);
         throw error;
       }
-
-      // Update local state
-      dispatch({
-        type: 'PLACE_ORDER',
-        payload: {
-          items: state.cart,
-          total: finalTotal,
-          orderType,
-          tableNumber,
-          pickupTime: orderType === 'takeaway' ? pickupTime : undefined,
-          paymentMethod,
-          status: 'pending',
-          customerInfo: customerInfo.name || customerInfo.phone ? customerInfo : undefined,
-        },
-      });
-
-      toast({
-        title: 'Order placed successfully!',
-        description: `Your order #${tokenNumber} has been received and is being processed`,
-      });
-
-      navigate('/orders');
+      
+      if (paymentMethod === 'online') {
+        // Show UPI payment form for online payments
+        setOrderId(data.id);
+        setShowUPIPayment(true);
+      } else {
+        // Cash payment - order placed immediately (auto-verified)
+        dispatch({ type: 'CLEAR_CART' });
+        toast({
+          title: 'Order placed successfully!',
+          description: `Your order #${tokenNumber} has been received and is being processed`,
+        });
+        navigate('/orders');
+      }
     } catch (error) {
       console.error('Error placing order:', error);
       toast({
@@ -127,6 +134,25 @@ const CartPage = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handlePaymentSuccess = () => {
+    dispatch({ type: 'CLEAR_CART' });
+    toast({
+      title: 'Payment submitted successfully!',
+      description: 'Your payment is being verified. You will be notified once confirmed.',
+    });
+    navigate('/orders');
+  };
+
+  const handlePaymentFailure = () => {
+    toast({
+      title: 'Payment submission failed',
+      description: 'Please try again or choose a different payment method',
+      variant: 'destructive',
+    });
+    setShowUPIPayment(false);
+    setOrderId(null);
   };
 
   const generateTimeSlots = () => {
@@ -148,39 +174,59 @@ const CartPage = () => {
 
   if (state.cart.length === 0) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-24 h-24 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Trash2 className="h-12 w-12 text-gray-400" />
+      <div className="min-h-screen bg-gray-50">
+        <NavigationHeader 
+          title="Your Cart" 
+          subtitle="Cart is empty"
+        />
+        
+        <div className="flex items-center justify-center p-8">
+          <div className="text-center">
+            <div className="w-24 h-24 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Trash2 className="h-12 w-12 text-gray-400" />
+            </div>
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Your cart is empty</h2>
+            <p className="text-gray-600 mb-6">Add some delicious items to get started!</p>
+            <Button onClick={() => navigate('/menu')} className="bg-gradient-to-r from-amber-500 to-orange-500">
+              Browse Menu
+            </Button>
           </div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Your cart is empty</h2>
-          <p className="text-gray-600 mb-6">Add some delicious items to get started!</p>
-          <Button onClick={() => navigate('/menu')} className="bg-gradient-to-r from-amber-500 to-orange-500">
-            Browse Menu
-          </Button>
         </div>
       </div>
     );
   }
 
+  // Render UPI payment interface if needed
+  if (showUPIPayment && orderId) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <NavigationHeader 
+          title="Payment" 
+          subtitle="Complete your UPI payment"
+          customBackAction={() => {
+            setShowUPIPayment(false);
+            setOrderId(null);
+          }}
+        />
+        
+        <div className="flex items-center justify-center p-4">
+          <UPIPaymentForm
+            orderId={orderId}
+            amount={finalTotal}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  const headerSubtitle = `${state.cart.length} items • ${orderType?.replace('-', ' ')} ${tableNumber ? `• Table #${tableNumber}` : ''}`;
+
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm sticky top-0 z-50">
-        <div className="max-w-4xl mx-auto px-4 py-4">
-          <div className="flex items-center space-x-4">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => navigate(-1)}
-              className="p-2"
-            >
-              <ArrowLeft className="h-5 w-5" />
-            </Button>
-            <h1 className="text-xl font-bold text-gray-900">Your Cart</h1>
-          </div>
-        </div>
-      </header>
+      <NavigationHeader 
+        title="Your Cart" 
+        subtitle={headerSubtitle}
+      />
 
       <div className="max-w-4xl mx-auto px-4 py-6">
         <div className="grid lg:grid-cols-3 gap-6">
@@ -240,13 +286,18 @@ const CartPage = () => {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div>
-                  <Label htmlFor="name">Name (Optional)</Label>
+                  <Label htmlFor="name">Name *</Label>
                   <Input
                     id="name"
                     value={customerInfo.name}
                     onChange={(e) => setCustomerInfo({ ...customerInfo, name: e.target.value })}
                     placeholder="Enter your name"
+                    required
+                    className={!customerInfo.name.trim() ? 'border-red-300' : ''}
                   />
+                  {!customerInfo.name.trim() && (
+                    <p className="text-xs text-red-600 mt-1">Name is required</p>
+                  )}
                 </div>
                 <div>
                   <Label htmlFor="phone">Phone (Optional)</Label>
@@ -305,10 +356,25 @@ const CartPage = () => {
                     <RadioGroupItem value="online" id="online" />
                     <Label htmlFor="online" className="flex items-center space-x-2 cursor-pointer">
                       <CreditCard className="h-4 w-4" />
-                      <span>Pay Online</span>
+                      <span>Pay Online (UPI)</span>
                     </Label>
                   </div>
                 </RadioGroup>
+                
+                {paymentMethod === 'online' && (
+                  <Alert className="mt-3 border-blue-200 bg-blue-50">
+                    <CreditCard className="h-4 w-4 text-blue-600" />
+                    <AlertDescription className="text-blue-800">
+                      <strong>Manual Verification Process:</strong>
+                      <ul className="list-disc list-inside mt-1 text-sm">
+                        <li>Pay via UPI using QR code or UPI ID</li>
+                        <li>Submit UTR number and transaction time</li>
+                        <li>Admin will verify payment manually</li>
+                        <li>Order confirmed after verification</li>
+                      </ul>
+                    </AlertDescription>
+                  </Alert>
+                )}
               </CardContent>
             </Card>
 
@@ -350,12 +416,20 @@ const CartPage = () => {
                   <span>₹{finalTotal.toFixed(2)}</span>
                 </div>
                 
+                {!customerInfo.name.trim() && (
+                  <Alert>
+                    <AlertDescription>
+                      Please enter your name to place the order
+                    </AlertDescription>
+                  </Alert>
+                )}
+                
                 <Button
                   onClick={placeOrder}
-                  disabled={loading}
+                  disabled={loading || !customerInfo.name.trim()}
                   className="w-full bg-gradient-to-r from-green-500 to-teal-500 hover:from-green-600 hover:to-teal-600 text-white font-semibold py-3"
                 >
-                  {loading ? 'Placing Order...' : 'Place Order'}
+                  {loading ? 'Placing Order...' : paymentMethod === 'online' ? 'Proceed to Payment' : 'Place Order'}
                 </Button>
               </CardContent>
             </Card>

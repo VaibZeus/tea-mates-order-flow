@@ -1,9 +1,10 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useOrder } from "../context/OrderContext";
 import { useNavigate } from "react-router-dom";
 import { Button } from "./ui/button";
 import { supabase } from "../lib/supabaseClient";
 import { generateTokenNumber } from "../lib/utils";
+import UPIPaymentForm from "./UPIPaymentForm";
 
 const CheckoutPage = () => {
   const { state, dispatch } = useOrder();
@@ -13,8 +14,43 @@ const CheckoutPage = () => {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const [orderId, setOrderId] = useState<string | null>(null);
+  const [amount, setAmount] = useState<number>(100); // TODO: Replace with real cart amount
+  const [paymentStatus, setPaymentStatus] = useState<string | null>(null);
 
   const total = state.cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+
+  useEffect(() => {
+    // Create order in Supabase on mount
+    const createOrder = async () => {
+      const { data, error } = await supabase
+        .from("orders")
+        .insert([
+          { amount, status: "pending" },
+        ])
+        .select("id")
+        .single();
+      if (data) setOrderId(data.id);
+    };
+    createOrder();
+  }, [amount]);
+
+  useEffect(() => {
+    if (!orderId) return;
+    // Poll for payment status
+    const interval = setInterval(async () => {
+      const { data, error } = await supabase
+        .from("payments")
+        .select("status")
+        .eq("order_id", orderId)
+        .maybeSingle();
+      if (data && data.status === "success") {
+        setPaymentStatus("success");
+        clearInterval(interval);
+      }
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [orderId]);
 
   const handlePlaceOrder = async () => {
     if (!name.trim() || !phone.trim()) {
@@ -50,6 +86,9 @@ const CheckoutPage = () => {
   if (orderPlaced) {
     return <div className="p-8 text-center">Order placed! Redirecting to orders...</div>;
   }
+
+  if (!orderId) return <div>Creating order...</div>;
+  if (paymentStatus === "success") return <div>Order accepted! Payment verified.</div>;
 
   return (
     <div className="max-w-xl mx-auto p-8">
@@ -91,6 +130,7 @@ const CheckoutPage = () => {
           <Button onClick={handlePlaceOrder} className="w-full" disabled={loading}>
             {loading ? "Placing Order..." : "Place Order"}
           </Button>
+          <UPIPaymentForm orderId={orderId} amount={amount} />
         </>
       )}
     </div>

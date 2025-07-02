@@ -1,14 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Clock, CheckCircle, Truck, Package, ArrowLeft, Coffee, Search, RefreshCw, Download, Printer, Bell } from 'lucide-react';
+import { Clock, CheckCircle, Truck, Package, ArrowLeft, Coffee, Search, RefreshCw, Download, Printer, Bell, XCircle, AlertTriangle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { NavigationHeader } from '@/components/ui/navigation-header';
 import { useOrder } from '@/context/OrderContext';
 import { supabase } from '@/lib/supabaseClient';
 import { toast } from '@/hooks/use-toast';
 import OrderSlip from './OrderSlip';
+import { Alert, AlertDescription } from './ui/alert';
 
 interface Order {
   id: string;
@@ -25,6 +27,8 @@ interface Order {
   table_number?: string;
   pickup_time?: string;
   payment_method: string;
+  payment_verified: boolean;
+  payment_verification_notes?: string;
 }
 
 const OrdersPage = () => {
@@ -37,7 +41,18 @@ const OrdersPage = () => {
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [showOrderSlip, setShowOrderSlip] = useState(false);
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+  const [audioContext, setAudioContext] = useState<AudioContext | null>(null);
   const navigate = useNavigate();
+
+  // Initialize audio context
+  useEffect(() => {
+    try {
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      setAudioContext(ctx);
+    } catch (error) {
+      console.log('Audio context not supported:', error);
+    }
+  }, []);
 
   // Request notification permission on component mount
   useEffect(() => {
@@ -51,6 +66,59 @@ const OrdersPage = () => {
       }
     }
   }, []);
+
+  // Enhanced notification sound function
+  const playNotificationSound = (type: 'status-update' | 'order-ready' | 'payment-verified' = 'status-update') => {
+    if (!audioContext) return;
+
+    try {
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+      
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+      
+      if (type === 'order-ready') {
+        // More prominent sound for order ready
+        oscillator.frequency.setValueAtTime(1000, audioContext.currentTime);
+        oscillator.frequency.setValueAtTime(800, audioContext.currentTime + 0.1);
+        oscillator.frequency.setValueAtTime(1000, audioContext.currentTime + 0.2);
+        oscillator.frequency.setValueAtTime(800, audioContext.currentTime + 0.3);
+        oscillator.frequency.setValueAtTime(1000, audioContext.currentTime + 0.4);
+        
+        gainNode.gain.setValueAtTime(0.4, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+        
+        oscillator.start(audioContext.currentTime);
+        oscillator.stop(audioContext.currentTime + 0.5);
+      } else if (type === 'payment-verified') {
+        // Special sound for payment verification
+        oscillator.frequency.setValueAtTime(600, audioContext.currentTime);
+        oscillator.frequency.setValueAtTime(800, audioContext.currentTime + 0.1);
+        oscillator.frequency.setValueAtTime(1000, audioContext.currentTime + 0.2);
+        oscillator.frequency.setValueAtTime(1200, audioContext.currentTime + 0.3);
+        
+        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.4);
+        
+        oscillator.start(audioContext.currentTime);
+        oscillator.stop(audioContext.currentTime + 0.4);
+      } else {
+        // Standard notification sound
+        oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
+        oscillator.frequency.setValueAtTime(600, audioContext.currentTime + 0.1);
+        oscillator.frequency.setValueAtTime(800, audioContext.currentTime + 0.2);
+        
+        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+        
+        oscillator.start(audioContext.currentTime);
+        oscillator.stop(audioContext.currentTime + 0.3);
+      }
+    } catch (error) {
+      console.log('Audio notification error:', error);
+    }
+  };
 
   // Function to show browser notification
   const showNotification = (title: string, body: string, icon?: string) => {
@@ -66,31 +134,6 @@ const OrdersPage = () => {
       } catch (error) {
         console.log('Notification error:', error);
       }
-    }
-  };
-
-  // Function to play notification sound
-  const playNotificationSound = () => {
-    try {
-      // Create a simple notification sound using Web Audio API
-      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const oscillator = audioContext.createOscillator();
-      const gainNode = audioContext.createGain();
-      
-      oscillator.connect(gainNode);
-      gainNode.connect(audioContext.destination);
-      
-      oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
-      oscillator.frequency.setValueAtTime(600, audioContext.currentTime + 0.1);
-      oscillator.frequency.setValueAtTime(800, audioContext.currentTime + 0.2);
-      
-      gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
-      
-      oscillator.start(audioContext.currentTime);
-      oscillator.stop(audioContext.currentTime + 0.3);
-    } catch (error) {
-      console.log('Audio notification error:', error);
     }
   };
 
@@ -121,9 +164,7 @@ const OrdersPage = () => {
     }
   };
 
-  // Real-time subscription for order updates
-  // 
-  
+  // Enhanced real-time subscription for order updates
   useEffect(() => {
     if (!submitted) return;
 
@@ -142,9 +183,6 @@ const OrdersPage = () => {
             prevOrders.map(order => 
               order.id === updatedOrder.id ? updatedOrder : order
             )
-
-
-
           );
           
           // Check if this order belongs to the current search results
@@ -154,55 +192,81 @@ const OrdersPage = () => {
             updatedOrder.customer_info?.phone?.toLowerCase().includes(searchTerm) ||
             updatedOrder.customer_info?.name?.toLowerCase().includes(searchTerm);
 
-          if (isRelevantOrder && oldOrder.status !== updatedOrder.status) {
-            // Show different notifications based on status
-            let notificationTitle = '';
-            let notificationBody = '';
-            let toastTitle = '';
-            let toastDescription = '';
-
-            switch (updatedOrder.status) {
-              case 'accepted':
-              case 'confirmed':
-                notificationTitle = '✅ Order Confirmed!';
-                notificationBody = `Your order #${updatedOrder.token_number} has been confirmed and is being prepared.`;
-                toastTitle = 'Order Confirmed';
-                toastDescription = `Order #${updatedOrder.token_number} is now being prepared`;
-                break;
-              case 'preparing':
-                notificationTitle = '👨‍🍳 Order Being Prepared!';
-                notificationBody = `Your order #${updatedOrder.token_number} is now being prepared by our kitchen.`;
-                toastTitle = 'Order in Kitchen';
-                toastDescription = `Order #${updatedOrder.token_number} is being prepared`;
-                break;
-              case 'ready':
-              case 'done':
-                notificationTitle = '🎉 Order Ready!';
-                notificationBody = `Your order #${updatedOrder.token_number} is ready for ${updatedOrder.order_type === 'dine-in' ? 'serving' : 'pickup'}!`;
-                toastTitle = 'Order Ready!';
-                toastDescription = `Order #${updatedOrder.token_number} is ready for ${updatedOrder.order_type === 'dine-in' ? 'serving' : 'pickup'}`;
-                break;
-              case 'delivered':
-                notificationTitle = '✨ Order Complete!';
-                notificationBody = `Your order #${updatedOrder.token_number} has been completed. Thank you!`;
-                toastTitle = 'Order Complete';
-                toastDescription = `Order #${updatedOrder.token_number} has been completed`;
-                break;
-            }
-
-            if (notificationTitle) {
-              // Show browser notification
-              showNotification(notificationTitle, notificationBody);
+          if (isRelevantOrder) {
+            // Check for payment verification
+            if (oldOrder.payment_verified !== updatedOrder.payment_verified && updatedOrder.payment_verified) {
+              showNotification(
+                '✅ Payment Verified!',
+                `Your payment for order #${updatedOrder.token_number} has been verified and your order is confirmed!`
+              );
               
-              // Play notification sound
-              playNotificationSound();
+              playNotificationSound('payment-verified');
               
-              // Show toast notification
               toast({
-                title: toastTitle,
-                description: toastDescription,
+                title: 'Payment Verified!',
+                description: `Order #${updatedOrder.token_number} payment verified and order confirmed`,
                 duration: 5000,
               });
+            }
+
+            // Check for status changes
+            if (oldOrder.status !== updatedOrder.status) {
+              let notificationTitle = '';
+              let notificationBody = '';
+              let toastTitle = '';
+              let toastDescription = '';
+              let soundType: 'status-update' | 'order-ready' | 'payment-verified' = 'status-update';
+
+              switch (updatedOrder.status) {
+                case 'accepted':
+                case 'confirmed':
+                  notificationTitle = '✅ Order Confirmed!';
+                  notificationBody = `Your order #${updatedOrder.token_number} has been confirmed and is being prepared.`;
+                  toastTitle = 'Order Confirmed';
+                  toastDescription = `Order #${updatedOrder.token_number} is now being prepared`;
+                  break;
+                case 'preparing':
+                  notificationTitle = '👨‍🍳 Order Being Prepared!';
+                  notificationBody = `Your order #${updatedOrder.token_number} is now being prepared by our kitchen.`;
+                  toastTitle = 'Order in Kitchen';
+                  toastDescription = `Order #${updatedOrder.token_number} is being prepared`;
+                  break;
+                case 'ready':
+                case 'done':
+                  notificationTitle = '🎉 Order Ready!';
+                  notificationBody = `Your order #${updatedOrder.token_number} is ready for ${updatedOrder.order_type === 'dine-in' ? 'serving' : 'pickup'}!`;
+                  toastTitle = 'Order Ready!';
+                  toastDescription = `Order #${updatedOrder.token_number} is ready for ${updatedOrder.order_type === 'dine-in' ? 'serving' : 'pickup'}`;
+                  soundType = 'order-ready';
+                  break;
+                case 'completed':
+                  notificationTitle = '✨ Order Complete!';
+                  notificationBody = `Your order #${updatedOrder.token_number} has been completed. Thank you!`;
+                  toastTitle = 'Order Complete';
+                  toastDescription = `Order #${updatedOrder.token_number} has been completed`;
+                  break;
+                case 'cancelled':
+                  notificationTitle = '❌ Order Cancelled';
+                  notificationBody = `Your order #${updatedOrder.token_number} has been cancelled. Please contact us for assistance.`;
+                  toastTitle = 'Order Cancelled';
+                  toastDescription = `Order #${updatedOrder.token_number} has been cancelled`;
+                  break;
+              }
+
+              if (notificationTitle) {
+                // Show browser notification
+                showNotification(notificationTitle, notificationBody);
+                
+                // Play notification sound
+                playNotificationSound(soundType);
+                
+                // Show toast notification
+                toast({
+                  title: toastTitle,
+                  description: toastDescription,
+                  duration: 5000,
+                });
+              }
             }
           }
         } else if (payload.eventType === 'INSERT' && payload.new) {
@@ -224,32 +288,7 @@ const OrdersPage = () => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [submitted, search, notificationsEnabled]);
-
-useEffect(() => {
-  const loadInitialOrders = async () => {
-    setLoading(true);
-    const { data, error } = await supabase
-      .from('orders')
-      .select('*')
-      .order('timestamp', { ascending: false })
-      .limit(30); // recent 30 orders
-
-    if (error) {
-      toast({
-        title: 'Error loading orders',
-        description: error.message,
-        variant: 'destructive',
-      });
-    } else {
-      setOrders(data);
-    }
-    setLoading(false);
-  };
-
-  loadInitialOrders();
-}, []);
-
+  }, [submitted, search, notificationsEnabled, audioContext]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -270,8 +309,10 @@ useEffect(() => {
       case 'ready':
       case 'done':
         return <Truck className="h-5 w-5 text-green-500" />;
-      case 'delivered':
+      case 'completed':
         return <CheckCircle className="h-5 w-5 text-green-600" />;
+      case 'cancelled':
+        return <XCircle className="h-5 w-5 text-red-500" />;
       default:
         return <Clock className="h-5 w-5 text-gray-500" />;
     }
@@ -289,8 +330,10 @@ useEffect(() => {
       case 'ready':
       case 'done':
         return 'bg-green-100 text-green-800';
-      case 'delivered':
+      case 'completed':
         return 'bg-gray-100 text-gray-800';
+      case 'cancelled':
+        return 'bg-red-100 text-red-800';
       default:
         return 'bg-gray-100 text-gray-800';
     }
@@ -307,7 +350,7 @@ useEffect(() => {
     
     switch (status) {
       case 'pending':
-        return '2-3 minutes';
+        return 'Awaiting confirmation';
       case 'accepted':
       case 'confirmed':
         return '5-10 minutes';
@@ -316,8 +359,10 @@ useEffect(() => {
       case 'ready':
       case 'done':
         return 'Ready now!';
-      case 'delivered':
+      case 'completed':
         return 'Completed';
+      case 'cancelled':
+        return 'Cancelled';
       default:
         return 'Unknown';
     }
@@ -365,18 +410,10 @@ useEffect(() => {
   if (!submitted) {
     return (
       <div className="min-h-screen bg-gray-50">
-        <header className="bg-white shadow-sm">
-          <div className="max-w-6xl mx-auto px-4 py-4">
-            <div className="flex items-center space-x-4">
-              <Link to="/">
-                <Button variant="ghost" size="sm" className="p-2">
-                  <ArrowLeft className="h-5 w-5" />
-                </Button>
-              </Link>
-              <h1 className="text-xl font-bold text-gray-900">Track Your Orders</h1>
-            </div>
-          </div>
-        </header>
+        <NavigationHeader 
+          title="Track Your Orders" 
+          subtitle="Find your orders by phone or token"
+        />
 
         <div className="flex-1 flex items-center justify-center p-8">
           <div className="max-w-md mx-auto w-full">
@@ -395,7 +432,7 @@ useEffect(() => {
                     <span className="text-blue-800 font-medium">Enable Notifications</span>
                   </div>
                   <p className="text-sm text-blue-700 mb-3">
-                    Get instant notifications when your order status changes
+                    Get instant notifications when your order status changes or payment is verified
                   </p>
                   <Button
                     onClick={enableNotifications}
@@ -438,52 +475,31 @@ useEffect(() => {
     );
   }
 
+  const headerSubtitle = `Searching for: ${search} ${notificationsEnabled ? '• Notifications On' : '• Notifications Off'}`;
+
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm sticky top-0 z-50">
-        <div className="max-w-6xl mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setSubmitted(false)}
-                className="p-2"
-              >
-                <ArrowLeft className="h-5 w-5" />
-              </Button>
-              <div>
-                <h1 className="text-xl font-bold text-gray-900">Your Orders</h1>
-                <p className="text-sm text-gray-600">Searching for: {search}</p>
-              </div>
-            </div>
-            <div className="flex items-center space-x-4">
-              {/* Notification Status */}
-              <div className="flex items-center space-x-2">
-                <Bell className={`h-4 w-4 ${notificationsEnabled ? 'text-green-600' : 'text-gray-400'}`} />
-                <span className="text-xs text-gray-600">
-                  {notificationsEnabled ? 'Notifications On' : 'Notifications Off'}
-                </span>
-              </div>
-              
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={refreshOrders}
-                disabled={loading}
-              >
-                <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-                Refresh
-              </Button>
-              <div className="text-right">
-                <p className="text-sm text-gray-500">Current time</p>
-                <p className="font-mono text-lg">{formatTime(currentTime)}</p>
-              </div>
-            </div>
+      <NavigationHeader 
+        title="Your Orders" 
+        subtitle={headerSubtitle}
+        customBackAction={() => setSubmitted(false)}
+      >
+        <div className="flex items-center space-x-4">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={refreshOrders}
+            disabled={loading}
+          >
+            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+          <div className="text-right">
+            <p className="text-sm text-gray-500">Current time</p>
+            <p className="font-mono text-lg">{formatTime(currentTime)}</p>
           </div>
         </div>
-      </header>
+      </NavigationHeader>
 
       <div className="max-w-4xl mx-auto px-4 py-6">
         {loading ? (
@@ -505,7 +521,10 @@ useEffect(() => {
         ) : (
           <div className="space-y-4">
             {orders.map((order) => (
-              <Card key={order.id} className={order.status === 'ready' || order.status === 'done' ? 'border-green-200 bg-green-50 shadow-lg' : ''}>
+              <Card key={order.id} className={`${
+                order.status === 'ready' || order.status === 'done' ? 'border-green-200 bg-green-50 shadow-lg' : 
+                order.status === 'cancelled' ? 'border-red-200 bg-red-50' : ''
+              } hover:shadow-md transition-shadow`}>
                 <CardHeader>
                   <div className="flex items-center justify-between">
                     <CardTitle className="flex items-center space-x-2">
@@ -519,6 +538,12 @@ useEffect(() => {
                       {(order.status === 'ready' || order.status === 'done') && (
                         <Badge className="bg-green-500 text-white animate-pulse">
                           Ready!
+                        </Badge>
+                      )}
+                      {order.status === 'cancelled' && (
+                        <Badge className="bg-red-500 text-white">
+                          <AlertTriangle className="h-3 w-3 mr-1" />
+                          Cancelled
                         </Badge>
                       )}
                     </CardTitle>
@@ -537,6 +562,26 @@ useEffect(() => {
                   </div>
                 </CardHeader>
                 <CardContent>
+                  {/* Payment Status Alert */}
+                  {order.payment_method === 'online' && !order.payment_verified && order.status !== 'cancelled' && (
+                    <Alert className="mb-4 border-yellow-200 bg-yellow-50">
+                      <Clock className="h-4 w-4 text-yellow-600" />
+                      <AlertDescription className="text-yellow-800">
+                        <strong>Payment Verification Pending:</strong> Your payment is being verified by our admin team. 
+                        Your order will be confirmed once payment is verified.
+                      </AlertDescription>
+                    </Alert>
+                  )}
+
+                  {order.payment_method === 'online' && order.payment_verified && (
+                    <Alert className="mb-4 border-green-200 bg-green-50">
+                      <CheckCircle className="h-4 w-4 text-green-600" />
+                      <AlertDescription className="text-green-800">
+                        <strong>Payment Verified:</strong> Your payment has been verified and your order is confirmed!
+                      </AlertDescription>
+                    </Alert>
+                  )}
+
                   <div className="space-y-2 mb-4">
                     {order.items.map((item: any, index: number) => (
                       <div key={index} className="flex justify-between items-center">
@@ -551,7 +596,12 @@ useEffect(() => {
                       <span>₹{order.total}</span>
                     </div>
                     <p className="text-sm text-gray-600 mt-1">
-                      Payment: {order.payment_method === 'online' ? 'Paid Online' : 'Pay at Counter'}
+                      Payment: {order.payment_method === 'online' ? 'Online UPI' : 'Pay at Counter'}
+                      {order.payment_method === 'online' && (
+                        <span className={`ml-2 ${order.payment_verified ? 'text-green-600' : 'text-yellow-600'}`}>
+                          ({order.payment_verified ? 'Verified' : 'Pending Verification'})
+                        </span>
+                      )}
                     </p>
                     {order.customer_info?.name && (
                       <p className="text-sm text-gray-600">
@@ -572,21 +622,23 @@ useEffect(() => {
                     </Button>
                   </div>
 
-                  {/* Progress Bar */}
+                  {/* Enhanced Progress Bar */}
                   <div className="mt-6">
                     <div className="flex justify-between text-sm mb-2">
                       <span>Order Progress</span>
                       <span>{Math.min(
-                        ['pending', 'accepted', 'preparing', 'ready', 'delivered'].indexOf(order.status) + 1,
-                        4
-                      )}/4</span>
+                        ['pending', 'accepted', 'preparing', 'ready', 'completed'].indexOf(order.status) + 1,
+                        5
+                      )}/5</span>
                     </div>
                     <div className="w-full bg-gray-200 rounded-full h-2">
                       <div
-                        className="bg-gradient-to-r from-green-500 to-teal-500 h-2 rounded-full transition-all duration-500"
+                        className={`h-2 rounded-full transition-all duration-500 ${
+                          order.status === 'cancelled' ? 'bg-red-500' : 'bg-gradient-to-r from-green-500 to-teal-500'
+                        }`}
                         style={{
-                          width: `${Math.min(
-                            (['pending', 'accepted', 'preparing', 'ready', 'delivered'].indexOf(order.status) + 1) * 25,
+                          width: order.status === 'cancelled' ? '100%' : `${Math.min(
+                            (['pending', 'accepted', 'preparing', 'ready', 'completed'].indexOf(order.status) + 1) * 20,
                             100
                           )}%`
                         }}
@@ -597,6 +649,7 @@ useEffect(() => {
                       <span>Confirmed</span>
                       <span>Preparing</span>
                       <span>Ready</span>
+                      <span>Complete</span>
                     </div>
                   </div>
                 </CardContent>

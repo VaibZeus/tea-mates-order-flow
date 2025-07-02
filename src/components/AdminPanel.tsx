@@ -7,11 +7,14 @@ import { Badge } from './ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Input } from './ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
-import { RefreshCw, LogOut, Clock, Package,CheckCircle, Truck, Printer, Send, Download, Bell, Search, X, BarChart3, Receipt, CrossIcon, Cross, CrosshairIcon, PizzaIcon, Check, CheckCheck, FileClock } from 'lucide-react';
+import { RefreshCw, LogOut, Clock, Package, CheckCircle, Truck, Printer, Send, Download, Bell, Search, X, BarChart3, Receipt, ShoppingBag, CreditCard, Filter, XCircle, AlertTriangle, History } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
+import { NavigationHeader } from '@/components/ui/navigation-header';
 import OrderSlip from './OrderSlip';
 import SalesReports from './SalesReports';
-import { Cancel } from '@radix-ui/react-alert-dialog';
+import ProductManagement from './ProductManagement';
+import PaymentHistory from './PaymentHistory';
+import { Alert, AlertDescription } from './ui/alert';
 
 interface Order {
   id: string;
@@ -36,12 +39,12 @@ interface Order {
 }
 
 const statusOptions = [
-  { value: 'pending', label: 'Pending', icon: Clock, color: 'bg-yellow-100 text-yellow-800' },
-  { value: 'accepted', label: 'Accepted', icon: CheckCheck, color: 'bg-blue-100 text-blue-800' },
-  { value: 'preparing', label: 'Preparing', icon: Package, color: 'bg-orange-100 text-orange-800' },
-  { value: 'done', label: 'Ready', icon: Truck, color: 'bg-green-100 text-green-800' },
-  { value: 'cancelled', label: 'Cancelled', icon: X, color: 'bg-red-100 text-red-800' },
-  { value: 'completed', label: 'Completed', icon: CheckCircle, color: 'bg-white-100 text-black-800' },
+  { value: 'pending', label: 'Pending', icon: Clock, color: 'bg-yellow-100 text-yellow-800', bgColor: 'bg-yellow-50', borderColor: 'border-yellow-200', hoverColor: 'hover:bg-yellow-100' },
+  { value: 'accepted', label: 'Accepted', icon: CheckCircle, color: 'bg-blue-100 text-blue-800', bgColor: 'bg-blue-50', borderColor: 'border-blue-200', hoverColor: 'hover:bg-blue-100' },
+  { value: 'preparing', label: 'Preparing', icon: Package, color: 'bg-orange-100 text-orange-800', bgColor: 'bg-orange-50', borderColor: 'border-orange-200', hoverColor: 'hover:bg-orange-100' },
+  { value: 'done', label: 'Ready', icon: Truck, color: 'bg-green-100 text-green-800', bgColor: 'bg-green-50', borderColor: 'border-green-200', hoverColor: 'hover:bg-green-100' },
+  { value: 'completed', label: 'Completed', icon: CheckCircle, color: 'bg-purple-100 text-purple-800', bgColor: 'bg-purple-50', borderColor: 'border-purple-200', hoverColor: 'hover:bg-purple-100' },
+  { value: 'cancelled', label: 'Cancelled', icon: XCircle, color: 'bg-red-100 text-red-800', bgColor: 'bg-red-50', borderColor: 'border-red-200', hoverColor: 'hover:bg-red-100' },
 ];
 
 const AdminPanel = () => {
@@ -57,61 +60,145 @@ const AdminPanel = () => {
   const [newOrderNotifications, setNewOrderNotifications] = useState<Order[]>([]);
   const [showNotificationPanel, setShowNotificationPanel] = useState(false);
   const [activeTab, setActiveTab] = useState('orders');
+  const [showFilterDropdown, setShowFilterDropdown] = useState(false);
   const navigate = useNavigate();
 
-  const fetchOrders = async () => {
-  setLoading(true);
-  try {
-    const { data, error } = await supabase
-      .from('orders')
-      .select('*')
-      .order('timestamp', { ascending: false });
+  // Audio context for notification sounds
+  const [audioContext, setAudioContext] = useState<AudioContext | null>(null);
 
-    if (!error && data) {
-      setAllOrders(data);
-
-      // Apply current filter and search to display orders
-      let filtered = data;
-      if (filter !== 'all') {
-        filtered = filtered.filter(order => order.status === filter);
-      }
-      if (searchTerm.trim()) {
-        filtered = filtered.filter(order =>
-          order.token_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          order.customer_info?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          order.customer_info?.phone?.toLowerCase().includes(searchTerm.toLowerCase())
-        );
-      }
-      setOrders(filtered);
+  useEffect(() => {
+    // Initialize audio context
+    try {
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      setAudioContext(ctx);
+    } catch (error) {
+      console.log('Audio context not supported:', error);
     }
-  } catch (error) {
-    console.error('Error fetching orders:', error);
-    toast({
-      title: 'Error',
-      description: 'Failed to fetch orders',
-      variant: 'destructive',
-    });
-  } finally {
-    setLoading(false);
-  }
-};
+  }, []);
 
- useEffect(() => {
-  let filtered = allOrders;
-  if (filter !== 'all') {
-    filtered = filtered.filter(order => order.status === filter);
-  }
-  if (searchTerm.trim()) {
-    const term = searchTerm.toLowerCase();
-    filtered = filtered.filter(order =>
-      order.token_number.toLowerCase().includes(term) ||
-      order.customer_info?.name?.toLowerCase().includes(term) ||
-      order.customer_info?.phone?.toLowerCase().includes(term)
-    );
-  }
-  setOrders(filtered);
-}, [filter, searchTerm, allOrders]);
+  // Check admin authentication on component mount
+  useEffect(() => {
+    const checkAdminAuth = () => {
+      try {
+        const isLoggedIn = localStorage.getItem('admin_logged_in');
+        const loginTime = localStorage.getItem('admin_login_time');
+        
+        if (!isLoggedIn || !loginTime) {
+          navigate('/admin', { replace: true });
+          return false;
+        }
+        
+        const loginDate = new Date(loginTime);
+        const now = new Date();
+        
+        if (isNaN(loginDate.getTime())) {
+          localStorage.removeItem('admin_logged_in');
+          localStorage.removeItem('admin_login_time');
+          navigate('/admin', { replace: true });
+          return false;
+        }
+        
+        const hoursDiff = (now.getTime() - loginDate.getTime()) / (1000 * 60 * 60);
+        
+        if (hoursDiff > 24) {
+          localStorage.removeItem('admin_logged_in');
+          localStorage.removeItem('admin_login_time');
+          navigate('/admin', { replace: true });
+          return false;
+        }
+        
+        return true;
+      } catch (error) {
+        console.error('Error checking admin auth:', error);
+        navigate('/admin', { replace: true });
+        return false;
+      }
+    };
 
+    if (!checkAdminAuth()) {
+      return;
+    }
+
+    fetchOrders();
+  }, [filter, navigate]);
+
+  const fetchOrders = async () => {
+    setLoading(true);
+    try {
+      let query = supabase
+        .from('orders')
+        .select('*')
+        .order('timestamp', { ascending: false });
+
+      if (filter !== 'all') {
+        query = query.eq('status', filter);
+      }
+
+      const { data, error } = await query;
+      
+      if (error) {
+        console.error('Error fetching orders:', error);
+        throw error;
+      }
+      
+      if (data) {
+        setAllOrders(data);
+        if (!isSearching) {
+          setOrders(data);
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching orders:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to fetch orders. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const searchOrders = async (term: string) => {
+    if (!term.trim()) {
+      setOrders(allOrders);
+      setIsSearching(false);
+      return;
+    }
+
+    setIsSearching(true);
+    setLoading(true);
+
+    try {
+      const { data, error } = await supabase
+        .from('orders')
+        .select('*')
+        .or(`token_number.ilike.%${term}%,customer_info->>phone.ilike.%${term}%,customer_info->>name.ilike.%${term}%`)
+        .order('timestamp', { ascending: false });
+      
+      if (error) {
+        console.error('Error searching orders:', error);
+        throw error;
+      }
+      
+      if (data) {
+        let filteredData = data;
+        if (filter !== 'all') {
+          filteredData = data.filter(order => order.status === filter);
+        }
+        setOrders(filteredData);
+      }
+    } catch (error) {
+      console.error('Error searching orders:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to search orders. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const clearSearch = () => {
     setSearchTerm('');
@@ -120,15 +207,51 @@ const AdminPanel = () => {
   };
 
   useEffect(() => {
-    // Check if admin is logged in
-    const isLoggedIn = localStorage.getItem('admin_logged_in');
-    if (!isLoggedIn) {
-      navigate('/admin');
-      return;
-    }
+    const timeoutId = setTimeout(() => {
+      searchOrders(searchTerm);
+    }, 300); // Debounce search
 
-    fetchOrders();
-  }, [filter, navigate]);
+    return () => clearTimeout(timeoutId);
+  }, [searchTerm, filter]);
+
+  // Enhanced notification sound function
+  const playNotificationSound = (type: 'new-order' | 'status-update' = 'new-order') => {
+    if (!audioContext) return;
+
+    try {
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+      
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+      
+      if (type === 'new-order') {
+        // More distinctive sound for new orders
+        oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
+        oscillator.frequency.setValueAtTime(1000, audioContext.currentTime + 0.1);
+        oscillator.frequency.setValueAtTime(800, audioContext.currentTime + 0.2);
+        oscillator.frequency.setValueAtTime(1000, audioContext.currentTime + 0.3);
+        
+        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.4);
+        
+        oscillator.start(audioContext.currentTime);
+        oscillator.stop(audioContext.currentTime + 0.4);
+      } else {
+        // Softer sound for status updates
+        oscillator.frequency.setValueAtTime(600, audioContext.currentTime);
+        oscillator.frequency.setValueAtTime(800, audioContext.currentTime + 0.1);
+        
+        gainNode.gain.setValueAtTime(0.2, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.2);
+        
+        oscillator.start(audioContext.currentTime);
+        oscillator.stop(audioContext.currentTime + 0.2);
+      }
+    } catch (error) {
+      console.log('Audio notification failed:', error);
+    }
+  };
 
   // Real-time subscription for order updates
   useEffect(() => {
@@ -139,87 +262,74 @@ const AdminPanel = () => {
         schema: 'public', 
         table: 'orders' 
       }, (payload) => {
-        if (payload.eventType === 'INSERT' && payload.new) {
-          const newOrder = payload.new as Order;
-          
-          // Add to all orders
-          setAllOrders(prevOrders => [newOrder, ...prevOrders]);
-          
-          // Add to current view if it matches filter and search
-          const matchesFilter = filter === 'all' || newOrder.status === filter;
-          const matchesSearch = !isSearching || 
-            newOrder.token_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            newOrder.customer_info?.phone?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            newOrder.customer_info?.name?.toLowerCase().includes(searchTerm.toLowerCase());
+        try {
+          if (payload.eventType === 'INSERT' && payload.new) {
+            const newOrder = payload.new as Order;
+            
+            // Add to all orders
+            setAllOrders(prevOrders => [newOrder, ...prevOrders]);
+            
+            // Add to current view if it matches filter and search
+            const matchesFilter = filter === 'all' || newOrder.status === filter;
+            const matchesSearch = !isSearching || 
+              newOrder.token_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
+              newOrder.customer_info?.phone?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+              newOrder.customer_info?.name?.toLowerCase().includes(searchTerm.toLowerCase());
 
-          if (matchesFilter && matchesSearch) {
-            setOrders(prevOrders => [newOrder, ...prevOrders]);
-          }
-          
-          // Add to notifications
-          setNewOrderNotifications(prev => [newOrder, ...prev.slice(0, 9)]); // Keep last 10
-          setNotificationCount(prev => prev + 1);
-          
-          // Show toast notification
-          toast({
-            title: 'New Order Received!',
-            description: `Order #${newOrder.token_number} - ${newOrder.order_type === 'dine-in' ? `Table ${newOrder.table_number}` : 'Takeaway'}`,
-            duration: 5000,
-          });
-          
-          // Play notification sound
-          try {
-            const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-            const oscillator = audioContext.createOscillator();
-            const gainNode = audioContext.createGain();
+            if (matchesFilter && matchesSearch) {
+              setOrders(prevOrders => [newOrder, ...prevOrders]);
+            }
             
-            oscillator.connect(gainNode);
-            gainNode.connect(audioContext.destination);
+            // Add to notifications
+            setNewOrderNotifications(prev => [newOrder, ...prev.slice(0, 9)]); // Keep last 10
+            setNotificationCount(prev => prev + 1);
             
-            // Create a more distinctive sound for new orders
-            oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
-            oscillator.frequency.setValueAtTime(1000, audioContext.currentTime + 0.1);
-            oscillator.frequency.setValueAtTime(800, audioContext.currentTime + 0.2);
-            oscillator.frequency.setValueAtTime(1000, audioContext.currentTime + 0.3);
+            // Play notification sound
+            playNotificationSound('new-order');
             
-            gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.4);
-            
-            oscillator.start(audioContext.currentTime);
-            oscillator.stop(audioContext.currentTime + 0.4);
-          } catch (e) {
-            console.log('Audio notification failed:', e);
-          }
-
-          // Browser notification if permission granted
-          if ('Notification' in window && Notification.permission === 'granted') {
-            new Notification('New Order Received!', {
-              body: `Order #${newOrder.token_number} - Total: ₹${newOrder.final_total || newOrder.total}`,
-              icon: '/favicon.ico',
-              tag: 'new-order',
+            // Show toast notification
+            toast({
+              title: 'New Order Received!',
+              description: `Order #${newOrder.token_number} - ${newOrder.order_type === 'dine-in' ? `Table ${newOrder.table_number}` : 'Takeaway'}`,
+              duration: 5000,
             });
+
+            // Browser notification if permission granted
+            if ('Notification' in window && Notification.permission === 'granted') {
+              new Notification('New Order Received!', {
+                body: `Order #${newOrder.token_number} - Total: ₹${newOrder.final_total || newOrder.total}`,
+                icon: '/favicon.ico',
+                tag: 'new-order',
+              });
+            }
+          } else if (payload.eventType === 'UPDATE' && payload.new) {
+            const updatedOrder = payload.new as Order;
+            
+            setAllOrders(prevOrders => 
+              prevOrders.map(order => 
+                order.id === updatedOrder.id ? updatedOrder : order
+              )
+            );
+            
+            setOrders(prevOrders => 
+              prevOrders.map(order => 
+                order.id === updatedOrder.id ? updatedOrder : order
+              )
+            );
+
+            // Play softer sound for status updates
+            playNotificationSound('status-update');
           }
-        } else if (payload.eventType === 'UPDATE' && payload.new) {
-          const updatedOrder = payload.new as Order;
-          
-          setAllOrders(prevOrders => 
-            prevOrders.map(order => 
-              order.id === updatedOrder.id ? updatedOrder : order
-            )
-          );
-          
-          setOrders(prevOrders => 
-            prevOrders.map(order => 
-              order.id === updatedOrder.id ? updatedOrder : order
-            )
-          );
+        } catch (error) {
+          console.error('Error handling real-time update:', error);
         }
       })
       .subscribe();
+
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [filter, searchTerm, isSearching]);
+  }, [filter, searchTerm, isSearching, audioContext]);
 
   // Request notification permission on mount
   useEffect(() => {
@@ -236,6 +346,7 @@ const AdminPanel = () => {
         .eq('id', orderId);
 
       if (error) {
+        console.error('Error updating status:', error);
         throw error;
       }
 
@@ -257,11 +368,14 @@ const AdminPanel = () => {
             break;
           case 'done':
             notificationMessage = 'Order is ready for pickup/serving';
-            
+            break;
+          case 'completed':
+            notificationMessage = 'Order has been completed';
+            break;
+          case 'cancelled':
+            notificationMessage = 'Order has been cancelled';
             break;
         }
-
-        fetchOrders(); // Refresh orders to reflect status change
         
         if (notificationMessage) {
           toast({
@@ -274,20 +388,60 @@ const AdminPanel = () => {
       console.error('Error updating status:', error);
       toast({
         title: 'Error',
-        description: 'Failed to update order status',
+        description: 'Failed to update order status. Please try again.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleCancelOrder = async (orderId: string) => {
+    const order = orders.find(o => o.id === orderId);
+    if (!order) return;
+
+    const confirmCancel = confirm(
+      `Are you sure you want to cancel order #${order.token_number}? This action cannot be undone.`
+    );
+
+    if (!confirmCancel) return;
+
+    try {
+      const { error } = await supabase
+        .from('orders')
+        .update({ status: 'cancelled' })
+        .eq('id', orderId);
+
+      if (error) {
+        console.error('Error cancelling order:', error);
+        throw error;
+      }
+
+      toast({
+        title: 'Order Cancelled',
+        description: `Order #${order.token_number} has been cancelled successfully`,
+      });
+    } catch (error) {
+      console.error('Error cancelling order:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to cancel order. Please try again.',
         variant: 'destructive',
       });
     }
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('admin_logged_in');
-    localStorage.removeItem('admin_login_time');
-    toast({
-      title: 'Logged Out',
-      description: 'You have been logged out successfully',
-    });
-    navigate('/');
+    try {
+      localStorage.removeItem('admin_logged_in');
+      localStorage.removeItem('admin_login_time');
+      toast({
+        title: 'Logged Out',
+        description: 'You have been logged out successfully',
+      });
+      navigate('/admin', { replace: true });
+    } catch (error) {
+      console.error('Error during logout:', error);
+      navigate('/admin', { replace: true });
+    }
   };
 
   const handlePrintOrderSlip = (order: Order) => {
@@ -331,140 +485,193 @@ const AdminPanel = () => {
 
   const formatCurrency = (amount: number) => `₹${amount?.toFixed(2) || '0.00'}`;
 
-  const pendingOrders = allOrders.filter(order => order.status === 'pending').length;
-  const acceptedOrders = allOrders.filter(order => order.status === 'accepted').length;
-  const preparingOrders = allOrders.filter(order => order.status === 'preparing').length;
-  const readyOrders = allOrders.filter(order => order.status === 'done').length;
-  const completedOrders = allOrders.filter(order => order.status === 'completed').length;
-  const cancelledOrders = allOrders.filter(order => order.status === 'cancelled').length;
+  // Calculate status counts
+  const statusCounts = statusOptions.reduce((acc, status) => {
+    acc[status.value] = allOrders.filter(order => order.status === status.value).length;
+    return acc;
+  }, {} as Record<string, number>);
+
+  const totalOrders = allOrders.length;
+
+  // Handle status card click to filter orders
+  const handleStatusCardClick = (statusValue: string) => {
+    setFilter(statusValue);
+    setShowFilterDropdown(false);
+    
+    // Clear search when filtering by status
+    if (searchTerm) {
+      setSearchTerm('');
+      setIsSearching(false);
+    }
+
+    // Show feedback
+    const statusLabel = statusOptions.find(s => s.value === statusValue)?.label || statusValue;
+    toast({
+      title: 'Filter Applied',
+      description: `Showing ${statusLabel.toLowerCase()} orders`,
+      duration: 2000,
+    });
+  };
+
+  // Handle total orders card click to show all orders
+  const handleTotalOrdersClick = () => {
+    setFilter('all');
+    setShowFilterDropdown(false);
+    
+    // Clear search when showing all orders
+    if (searchTerm) {
+      setSearchTerm('');
+      setIsSearching(false);
+    }
+
+    toast({
+      title: 'Filter Cleared',
+      description: 'Showing all orders',
+      duration: 2000,
+    });
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Admin Dashboard</h1>
-              <p className="text-sm text-gray-600">Manage orders and track kitchen operations</p>
-            </div>
-            <div className="flex items-center space-x-4">
-              {/* Search Bar - Only show on orders tab */}
-              {activeTab === 'orders' && (
-                <div className="relative">
-                  <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                  <Input
-                    type="text"
-                    placeholder="Search by token or phone..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="pl-10 pr-10 w-64"
-                  />
-                  {searchTerm && (
-                    <button
-                      onClick={clearSearch}
-                      className="absolute right-3 top-3 text-gray-400 hover:text-gray-600"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  )}
-                </div>
+      <NavigationHeader 
+        title="Admin Dashboard" 
+        subtitle="Manage orders, products, and track operations"
+        showBackButton={false}
+        showHomeButton={false}
+      >
+        <div className="flex items-center space-x-4">
+          {/* Search Bar - Only show on orders tab */}
+          {activeTab === 'orders' && (
+            <div className="relative">
+              <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+              <Input
+                type="text"
+                placeholder="Search by token or phone..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-10 pr-10 w-64"
+              />
+              {searchTerm && (
+                <button
+                  onClick={clearSearch}
+                  className="absolute right-3 top-3 text-gray-400 hover:text-gray-600"
+                >
+                  <X className="h-4 w-4" />
+                </button>
               )}
+            </div>
+          )}
 
-              {/* Notification Bell - Only show on orders tab */}
-              {activeTab === 'orders' && (
-                <div className="relative">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setShowNotificationPanel(!showNotificationPanel)}
-                    className="relative"
-                  >
-                    <Bell className="h-4 w-4" />
-                    {notificationCount > 0 && (
-                      <Badge className="absolute -top-2 -right-2 bg-red-500 text-white text-xs px-1 py-0 min-w-[1.25rem] h-5 flex items-center justify-center">
-                        {notificationCount > 99 ? '99+' : notificationCount}
-                      </Badge>
-                    )}
-                  </Button>
+          {/* Notification Bell - Only show on orders tab */}
+          {activeTab === 'orders' && (
+            <div className="relative">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowNotificationPanel(!showNotificationPanel)}
+                className="relative"
+              >
+                <Bell className="h-4 w-4" />
+                {notificationCount > 0 && (
+                  <Badge className="absolute -top-2 -right-2 bg-red-500 text-white text-xs px-1 py-0 min-w-[1.25rem] h-5 flex items-center justify-center">
+                    {notificationCount > 99 ? '99+' : notificationCount}
+                  </Badge>
+                )}
+              </Button>
 
-                  {/* Notification Panel */}
-                  {showNotificationPanel && (
-                    <div className="absolute right-0 top-12 w-80 bg-white border rounded-lg shadow-lg z-50 max-h-96 overflow-y-auto">
-                      <div className="p-4 border-b">
-                        <div className="flex items-center justify-between">
-                          <h3 className="font-semibold">New Orders</h3>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={clearNotifications}
-                          >
-                            Clear All
-                          </Button>
-                        </div>
-                      </div>
-                      <div className="max-h-64 overflow-y-auto">
-                        {newOrderNotifications.length === 0 ? (
-                          <div className="p-4 text-center text-gray-500">
-                            No new notifications
-                          </div>
-                        ) : (
-                          newOrderNotifications.map((order) => (
-                            <div
-                              key={order.id}
-                              className="p-3 border-b hover:bg-gray-50 cursor-pointer"
-                              onClick={() => markNotificationAsRead(order.id)}
-                            >
-                              <div className="flex items-center justify-between">
-                                <div>
-                                  <p className="font-medium">#{order.token_number}</p>
-                                  <p className="text-sm text-gray-600">
-                                    {order.order_type === 'dine-in' ? `Table ${order.table_number}` : 'Takeaway'}
-                                  </p>
-                                  <p className="text-sm text-gray-500">{formatCurrency(order.final_total || order.total)}</p>
-                                </div>
-                                <div className="text-xs text-gray-400">
-                                  {new Date(order.timestamp).toLocaleTimeString()}
-                                </div>
-                              </div>
-                            </div>
-                          ))
-                        )}
-                      </div>
+              {/* Notification Panel */}
+              {showNotificationPanel && (
+                <div className="absolute right-0 top-12 w-80 bg-white border rounded-lg shadow-lg z-50 max-h-96 overflow-y-auto">
+                  <div className="p-4 border-b">
+                    <div className="flex items-center justify-between">
+                      <h3 className="font-semibold">New Orders</h3>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={clearNotifications}
+                      >
+                        Clear All
+                      </Button>
                     </div>
-                  )}
+                  </div>
+                  <div className="max-h-64 overflow-y-auto">
+                    {newOrderNotifications.length === 0 ? (
+                      <div className="p-4 text-center text-gray-500">
+                        No new notifications
+                      </div>
+                    ) : (
+                      newOrderNotifications.map((order) => (
+                        <div
+                          key={order.id}
+                          className="p-3 border-b hover:bg-gray-50 cursor-pointer"
+                          onClick={() => markNotificationAsRead(order.id)}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="font-medium">#{order.token_number}</p>
+                              <p className="text-sm text-gray-600">
+                                {order.order_type === 'dine-in' ? `Table ${order.table_number}` : 'Takeaway'}
+                              </p>
+                              <p className="text-sm text-gray-500">{formatCurrency(order.final_total || order.total)}</p>
+                            </div>
+                            <div className="text-xs text-gray-400">
+                              {new Date(order.timestamp).toLocaleTimeString()}
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
                 </div>
               )}
-              
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={fetchOrders}
-                disabled={loading}
-              >
-                <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-                Refresh
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleLogout}
-              >
-                <LogOut className="h-4 w-4 mr-2" />
-                Logout
-              </Button>
             </div>
-          </div>
+          )}
+
+          {/* Payments Link */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => navigate('/admin/payments')}
+          >
+            <CreditCard className="h-4 w-4 mr-2" />
+            Payments
+          </Button>
+          
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={fetchOrders}
+            disabled={loading}
+          >
+            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleLogout}
+          >
+            <LogOut className="h-4 w-4 mr-2" />
+            Logout
+          </Button>
         </div>
-      </header>
+      </NavigationHeader>
 
       <div className="max-w-7xl mx-auto px-4 py-6">
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-2">
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="orders" className="flex items-center space-x-2">
               <Package className="h-4 w-4" />
               <span>Orders Management</span>
+            </TabsTrigger>
+            <TabsTrigger value="products" className="flex items-center space-x-2">
+              <ShoppingBag className="h-4 w-4" />
+              <span>Product Management</span>
+            </TabsTrigger>
+            <TabsTrigger value="payments" className="flex items-center space-x-2">
+              <History className="h-4 w-4" />
+              <span>Payment History</span>
             </TabsTrigger>
             <TabsTrigger value="reports" className="flex items-center space-x-2">
               <BarChart3 className="h-4 w-4" />
@@ -493,122 +700,126 @@ const AdminPanel = () => {
               </div>
             )}
 
-            {/* Stats Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-7 gap-3">
-              <Card onClick={()=> setFilter('pending')} className="cursor-pointer hover:shadow-lg transition-shadow">
-                <CardContent className="p-3">
-                  <div className="flex items-center">
-                    <div className="p-2 bg-yellow-100 rounded-lg">
-                      <Clock className="h-6 w-6 text-yellow-600" />
-                    </div>
-                    <div className="ml-4">
-                      <p className="text-sm font-medium text-gray-600">Pending</p>
-                      <p className="text-2xl font-bold text-gray-900">{pendingOrders}</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+            {/* Current Filter Info */}
+            {filter !== 'all' && !isSearching && (
+              <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+                <div className="flex items-center justify-between">
+                  <span className="text-green-800">
+                    Showing {statusOptions.find(s => s.value === filter)?.label.toLowerCase()} orders ({orders.length} found)
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleTotalOrdersClick}
+                    className="text-green-600 hover:text-green-800"
+                  >
+                    <X className="h-4 w-4 mr-1" />
+                    Show All Orders
+                  </Button>
+                </div>
+              </div>
+            )}
 
-              <Card onClick={()=> setFilter('accepted')} className="cursor-pointer hover:shadow-lg transition-shadow">
-                <CardContent className="p-3">
-                  <div className="flex items-center">
-                    <div className="p-2 bg-blue-100 rounded-lg">
-                      <CheckCheck className="h-6 w-6 text-blue-600" />
+            {/* Enhanced Clickable Stats Cards */}
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
+              {statusOptions.map((status) => (
+                <Card 
+                  key={status.value} 
+                  className={`${status.bgColor} ${status.borderColor} border-2 ${status.hoverColor} hover:shadow-lg transition-all duration-200 cursor-pointer transform hover:scale-105 ${
+                    filter === status.value ? 'ring-2 ring-blue-500 shadow-lg' : ''
+                  }`}
+                  onClick={() => handleStatusCardClick(status.value)}
+                >
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <div className={`p-2 rounded-lg ${status.color.replace('text-', 'bg-').replace('-800', '-100')}`}>
+                          <status.icon className={`h-5 w-5 ${status.color.replace('bg-', 'text-').replace('-100', '-600')}`} />
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-gray-700">{status.label}</p>
+                          <p className="text-2xl font-bold text-gray-900">{statusCounts[status.value] || 0}</p>
+                        </div>
+                      </div>
                     </div>
-                    <div className="ml-4">
-                      <p className="text-sm font-medium text-gray-600">Accepted</p>
-                      <p className="text-2xl font-bold text-gray-900">{acceptedOrders}</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card onClick={()=> setFilter('preparing')} className="cursor-pointer hover:shadow-lg transition-shadow">
-                <CardContent className="p-3">
-                  <div className="flex items-center">
-                    <div className="p-2 bg-orange-100 rounded-lg">
-                      <Package className="h-6 w-6 text-orange-600" />
-                    </div>
-                    <div className="ml-4">
-                      <p className="text-sm font-medium text-gray-600">Preparing</p>
-                      <p className="text-2xl font-bold text-gray-900">{preparingOrders}</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card onClick={()=> setFilter('done')} className="cursor-pointer hover:shadow-lg transition-shadow">
-                <CardContent className="p-3">
-                  <div className="flex items-center">
-                    <div className="p-2 bg-green-100 rounded-lg">
-                      <Truck className="h-6 w-6 text-green-600" />
-                    </div>
-                    <div className="ml-4">
-                      <p className="text-sm font-medium text-gray-600">Ready</p>
-                      <p className="text-2xl font-bold text-gray-900">{readyOrders}</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card onClick={()=> setFilter('completed')} className="cursor-pointer hover:shadow-lg transition-shadow">
-                <CardContent className="p-3">
-                  <div className="flex items-center">
-                    <div className="p-2 bg-purple-100 rounded-lg">
-                      <CheckCircle className="h-6 w-6  text-purple-600" />
-                    </div>
-                    <div className="ml-4">
-                      <p className="text-sm font-medium text-gray-600">Completed</p>
-                      <p className="text-2xl font-bold text-gray-900">{completedOrders}</p>
+                    {filter === status.value && (
+                      <div className="mt-2 text-xs text-blue-600 font-medium">
+                        ✓ Currently filtered
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              ))}
+              
+              {/* Total Orders Card - Clickable */}
+              <Card 
+                className={`bg-gray-900 text-white border-2 border-gray-700 hover:bg-gray-800 hover:shadow-lg transition-all duration-200 cursor-pointer transform hover:scale-105 ${
+                  filter === 'all' ? 'ring-2 ring-blue-400 shadow-lg' : ''
+                }`}
+                onClick={handleTotalOrdersClick}
+              >
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <div className="p-2 bg-white/10 rounded-lg">
+                        <Receipt className="h-5 w-5 text-white" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-gray-300">Total Orders</p>
+                        <p className="text-2xl font-bold text-white">{totalOrders}</p>
+                      </div>
                     </div>
                   </div>
-                </CardContent>
-              </Card>
-
-              <Card onClick={()=> setFilter('cancelled')} className="cursor-pointer hover:shadow-lg transition-shadow">
-                <CardContent className="p-3">
-                  <div className="flex items-center">
-                    <div className="p-2 bg-red-100 rounded-lg">
-                      <CrossIcon className="h-6 w-6 text-red-600 rotate-45 " />
+                  {filter === 'all' && (
+                    <div className="mt-2 text-xs text-blue-400 font-medium">
+                      ✓ Showing all orders
                     </div>
-                    <div className="ml-4">
-                      <p className="text-sm font-medium text-gray-600">Cancelled</p>
-                      <p className="text-2xl font-bold text-gray-900">{cancelledOrders}</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card onClick={()=> setFilter('all')} className="cursor-pointer hover:shadow-lg transition-shadow">
-                <CardContent className="p-3">
-                  <div className="flex items-center">
-                    <div className="p-2 bg-black rounded-lg">
-                      <FileClock className="h-6 w-6 text-white" />
-                    </div>
-                    <div className="ml-4">
-                      <p className="text-sm font-medium text-gray-600">Total Orders</p>
-                      <p className="text-2xl font-bold text-gray-900">{allOrders.length}</p>
-                    </div>
-                  </div>
+                  )}
                 </CardContent>
               </Card>
             </div>
 
-            {/* Filter */}
-            <div className="mb-6">
-              <Select value={filter} onValueChange={setFilter}>
-                <SelectTrigger className="w-48">
-                  <SelectValue placeholder="Filter by status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Orders</SelectItem>
-                  {statusOptions.map(option => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            {/* Filter and Controls */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-4">
+                <div className="relative">
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowFilterDropdown(!showFilterDropdown)}
+                    className="flex items-center space-x-2"
+                  >
+                    <Filter className="h-4 w-4" />
+                    <span>{filter === 'all' ? 'All Orders' : statusOptions.find(s => s.value === filter)?.label}</span>
+                  </Button>
+                  
+                  {showFilterDropdown && (
+                    <div className="absolute top-12 left-0 w-48 bg-white border rounded-lg shadow-lg z-50">
+                      <div className="p-2">
+                        <button
+                          onClick={() => {
+                            handleTotalOrdersClick();
+                          }}
+                          className={`w-full text-left px-3 py-2 rounded hover:bg-gray-100 ${filter === 'all' ? 'bg-blue-50 text-blue-700' : ''}`}
+                        >
+                          All Orders
+                        </button>
+                        {statusOptions.map((status) => (
+                          <button
+                            key={status.value}
+                            onClick={() => {
+                              handleStatusCardClick(status.value);
+                            }}
+                            className={`w-full text-left px-3 py-2 rounded hover:bg-gray-100 flex items-center space-x-2 ${filter === status.value ? 'bg-blue-50 text-blue-700' : ''}`}
+                          >
+                            <status.icon className="h-4 w-4" />
+                            <span>{status.label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
 
             {/* Orders List */}
@@ -620,13 +831,13 @@ const AdminPanel = () => {
             ) : orders.length === 0 ? (
               <div className="text-center py-12">
                 <p className="text-gray-600">
-                  {isSearching ? `No orders found for "${searchTerm}"` : 'No orders found'}
+                  {isSearching ? `No orders found for "${searchTerm}"` : filter !== 'all' ? `No ${statusOptions.find(s => s.value === filter)?.label.toLowerCase()} orders found` : 'No orders found'}
                 </p>
               </div>
             ) : (
               <div className="space-y-4">
                 {orders.map(order => (
-                  <Card key={order.id} className={order.status === 'pending' ? 'border-yellow-200 bg-yellow-50' : order.status === 'accepted' ? 'border-blue-200 bg-white' : order.status === 'preparing' ? 'border-orange-200 bg-orange-50' : order.status === 'done' ? 'border-green-200 bg-green-50' : order.status === 'cancelled' ? 'border-red-200 bg-red-50' : 'border-purple-200 bg-purple-50'}>
+                  <Card key={order.id} className={`${order.status === 'pending' ? 'border-yellow-200 bg-yellow-50' : order.status === 'cancelled' ? 'border-red-200 bg-red-50' : ''} hover:shadow-md transition-shadow`}>
                     <CardHeader>
                       <div className="flex items-center justify-between">
                         <CardTitle className="flex items-center space-x-3">
@@ -640,6 +851,12 @@ const AdminPanel = () => {
                           {order.order_type === 'dine-in' && order.table_number && (
                             <Badge variant="outline">
                               Table #{order.table_number}
+                            </Badge>
+                          )}
+                          {order.status === 'cancelled' && (
+                            <Badge className="bg-red-100 text-red-800">
+                              <AlertTriangle className="h-3 w-3 mr-1" />
+                              Cancelled
                             </Badge>
                           )}
                         </CardTitle>
@@ -708,27 +925,29 @@ const AdminPanel = () => {
 
                         {/* Actions */}
                         <div className="space-y-4">
-                          <div>
-                            <h4 className="font-semibold mb-2">Update Status:</h4>
-                            <Select
-                              value={order.status}
-                              onValueChange={(value) => handleStatusChange(order.id, value)}
-                            >
-                              <SelectTrigger>
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {statusOptions.map(option => (
-                                  <SelectItem key={option.value} value={option.value}>
-                                    {option.label}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
+                          {order.status !== 'cancelled' && order.status !== 'completed' && (
+                            <div>
+                              <h4 className="font-semibold mb-2">Update Status:</h4>
+                              <Select
+                                value={order.status}
+                                onValueChange={(value) => handleStatusChange(order.id, value)}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {statusOptions.filter(option => option.value !== 'cancelled').map(option => (
+                                    <SelectItem key={option.value} value={option.value}>
+                                      {option.label}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          )}
 
                           <div>
-                            <h4 className="font-semibold mb-2">Order Slip:</h4>
+                            <h4 className="font-semibold mb-2">Order Actions:</h4>
                             <div className="space-y-2">
                               <Button
                                 variant="outline"
@@ -748,6 +967,17 @@ const AdminPanel = () => {
                                 <Send className="h-4 w-4 mr-2" />
                                 Send to Customer
                               </Button>
+                              {order.status !== 'cancelled' && order.status !== 'completed' && (
+                                <Button
+                                  variant="destructive"
+                                  size="sm"
+                                  onClick={() => handleCancelOrder(order.id)}
+                                  className="w-full"
+                                >
+                                  <XCircle className="h-4 w-4 mr-2" />
+                                  Cancel Order
+                                </Button>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -757,6 +987,14 @@ const AdminPanel = () => {
                 ))}
               </div>
             )}
+          </TabsContent>
+
+          <TabsContent value="products">
+            <ProductManagement />
+          </TabsContent>
+
+          <TabsContent value="payments">
+            <PaymentHistory />
           </TabsContent>
 
           <TabsContent value="reports">
@@ -773,6 +1011,14 @@ const AdminPanel = () => {
             setShowOrderSlip(false);
             setSelectedOrder(null);
           }}
+        />
+      )}
+
+      {/* Click outside to close filter dropdown */}
+      {showFilterDropdown && (
+        <div 
+          className="fixed inset-0 z-40" 
+          onClick={() => setShowFilterDropdown(false)}
         />
       )}
     </div>

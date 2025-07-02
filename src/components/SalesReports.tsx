@@ -75,7 +75,7 @@ const SalesReports = () => {
   const fetchSalesData = async () => {
     setLoading(true);
     try {
-      // Fetch detailed sales data
+      // Fetch detailed sales data from the updated view
       const { data: salesData, error: salesError } = await supabase
         .from('sales_summary')
         .select('*')
@@ -83,7 +83,10 @@ const SalesReports = () => {
         .lte('sale_date', endDate)
         .order('sale_date', { ascending: false });
 
-      if (salesError) throw salesError;
+      if (salesError) {
+        console.error('Sales data error:', salesError);
+        throw salesError;
+      }
 
       setSalesData(salesData || []);
 
@@ -120,7 +123,7 @@ const SalesReports = () => {
       console.error('Error fetching sales data:', error);
       toast({
         title: 'Error',
-        description: 'Failed to fetch sales data',
+        description: 'Failed to fetch sales data. Please try again.',
         variant: 'destructive',
       });
     } finally {
@@ -351,6 +354,7 @@ const SalesReports = () => {
                   <tr className="border-b">
                     <th className="text-left p-2">Date</th>
                     <th className="text-right p-2">Orders</th>
+                    <th className="text-right p-2">Completed</th>
                     <th className="text-right p-2">Subtotal</th>
                     <th className="text-right p-2">SGST</th>
                     <th className="text-right p-2">CGST</th>
@@ -364,13 +368,22 @@ const SalesReports = () => {
                     <tr key={index} className="border-b hover:bg-gray-50">
                       <td className="p-2">{formatDate(row.sale_date)}</td>
                       <td className="text-right p-2">{row.total_orders}</td>
+                      <td className="text-right p-2 font-medium text-green-600">{row.completed_orders}</td>
                       <td className="text-right p-2">{formatCurrency(row.total_subtotal || 0)}</td>
                       <td className="text-right p-2">{formatCurrency(row.total_sgst || 0)}</td>
                       <td className="text-right p-2">{formatCurrency(row.total_cgst || 0)}</td>
                       <td className="text-right p-2">{formatCurrency(row.total_tax_collected || 0)}</td>
                       <td className="text-right p-2 font-semibold">{formatCurrency(row.total_sales || 0)}</td>
                       <td className="text-right p-2">
-                        {row.total_orders > 0 ? ((row.completed_orders / row.total_orders) * 100).toFixed(1) : '0.0'}%
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${
+                          row.total_orders > 0 && ((row.completed_orders / row.total_orders) * 100) >= 80
+                            ? 'bg-green-100 text-green-800'
+                            : row.total_orders > 0 && ((row.completed_orders / row.total_orders) * 100) >= 50
+                            ? 'bg-yellow-100 text-yellow-800'
+                            : 'bg-red-100 text-red-800'
+                        }`}>
+                          {row.total_orders > 0 ? ((row.completed_orders / row.total_orders) * 100).toFixed(1) : '0.0'}%
+                        </span>
                       </td>
                     </tr>
                   ))}
@@ -396,7 +409,7 @@ const SalesReports = () => {
                 </div>
                 <div className="w-full bg-gray-200 rounded-full h-2">
                   <div 
-                    className="bg-blue-500 h-2 rounded-full" 
+                    className="bg-blue-500 h-2 rounded-full transition-all duration-500" 
                     style={{ width: `${summary.dineInPercentage}%` }}
                   ></div>
                 </div>
@@ -407,7 +420,7 @@ const SalesReports = () => {
                 </div>
                 <div className="w-full bg-gray-200 rounded-full h-2">
                   <div 
-                    className="bg-green-500 h-2 rounded-full" 
+                    className="bg-green-500 h-2 rounded-full transition-all duration-500" 
                     style={{ width: `${summary.takeawayPercentage}%` }}
                   ></div>
                 </div>
@@ -417,25 +430,43 @@ const SalesReports = () => {
 
           <Card>
             <CardHeader>
-              <CardTitle>Tax Breakdown</CardTitle>
+              <CardTitle>Performance Metrics</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="space-y-3">
-                <div className="flex justify-between">
-                  <span>SGST (2.5%)</span>
-                  <span className="font-semibold">{formatCurrency(summary.totalTax / 2)}</span>
+              <div className="space-y-4">
+                <div className="flex justify-between items-center">
+                  <span>Order Completion Rate</span>
+                  <span className={`font-semibold ${
+                    summary.completionRate >= 80 ? 'text-green-600' : 
+                    summary.completionRate >= 50 ? 'text-yellow-600' : 'text-red-600'
+                  }`}>
+                    {summary.completionRate.toFixed(1)}%
+                  </span>
                 </div>
-                <div className="flex justify-between">
-                  <span>CGST (2.5%)</span>
-                  <span className="font-semibold">{formatCurrency(summary.totalTax / 2)}</span>
+                <div className="w-full bg-gray-200 rounded-full h-2">
+                  <div 
+                    className={`h-2 rounded-full transition-all duration-500 ${
+                      summary.completionRate >= 80 ? 'bg-green-500' : 
+                      summary.completionRate >= 50 ? 'bg-yellow-500' : 'bg-red-500'
+                    }`}
+                    style={{ width: `${summary.completionRate}%` }}
+                  ></div>
                 </div>
+                
                 <Separator />
-                <div className="flex justify-between font-bold">
-                  <span>Total Tax (5%)</span>
-                  <span>{formatCurrency(summary.totalTax)}</span>
-                </div>
-                <div className="text-sm text-gray-600">
-                  Tax Rate: 5% (2.5% SGST + 2.5% CGST)
+                
+                <div className="space-y-3">
+                  <div className="flex justify-between">
+                    <span>Average Order Value</span>
+                    <span className="font-semibold">{formatCurrency(summary.avgOrderValue)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Total Tax Collected</span>
+                    <span className="font-semibold">{formatCurrency(summary.totalTax)}</span>
+                  </div>
+                  <div className="text-sm text-gray-600">
+                    Tax Rate: 5% (2.5% SGST + 2.5% CGST)
+                  </div>
                 </div>
               </div>
             </CardContent>
