@@ -108,7 +108,3 @@ src/
 - Update the menu, branding, and UI as needed.
 - Extend the database schema for more features (menu management, analytics, etc.).
 
----
-
-## License
-MIT
